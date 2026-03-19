@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { supabase } from '@/lib/supabase'
 
-const DEFAULT_COMPANY_ID = 'HIER_DEINE_COMPANY_ID_EINFÜGEN'
+const DEFAULT_COMPANY_ID = '16757ba0-701f-4e64-98fa-eece23f8e7c4'
 
 export async function createEmployee(formData: FormData) {
   const employeeNumber = formData.get('employeeNumber')?.toString().trim()

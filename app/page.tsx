@@ -1,86 +1,114 @@
-import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server'
 
-const primaryActions = [
+type Role = 'geschaeftsfuehrer' | 'admin' | 'vorarbeiter'
+
+const roleContent: Record<
+  Role,
   {
-    title: 'Büro-Dashboard',
-    description:
-      'Arbeitszeiten erfassen, Vollständigkeit prüfen, Reisekosten exportieren und zentrale Steuerungsaufgaben übernehmen.',
-    href: '/admin',
+    label: string
+    title: string
+    subtitle: string
+    focusTitle: string
+    focusText: string
+  }
+> = {
+  geschaeftsfuehrer: {
+    label: 'Geschäftsführer',
+    title: 'Steuerung, Transparenz und Auswertung in einer zentralen Oberfläche.',
+    subtitle:
+      'Das System verbindet operative Erfassung, kaufmännische Nachvollziehbarkeit und Management-Überblick in einem konsistenten Ablauf.',
+    focusTitle: 'Ihr Fokus',
+    focusText:
+      'Sie erhalten einen strukturierten Überblick über Leistungen, Stundenverteilung, Reisekosten und den Reifegrad der Datenerfassung.',
+  },
+  admin: {
+    label: 'Admin',
+    title: 'Operative Pflege und kaufmännische Struktur in einem System.',
+    subtitle:
+      'Das System unterstützt die zentrale Pflege von Zeiten, Aufträgen, Reisekosten und Auswertungen in einem nachvollziehbaren Prozess.',
+    focusTitle: 'Ihr Fokus',
+    focusText:
+      'Sie steuern die Datenqualität, pflegen Stammdaten, überwachen Vollständigkeit und stellen die saubere Grundlage für Exporte und KPIs sicher.',
+  },
+  vorarbeiter: {
+    label: 'Vorarbeiter',
+    title: 'Klare operative Erfassung ohne unnötige Komplexität.',
+    subtitle:
+      'Das System unterstützt die strukturierte Zuordnung von Arbeitszeiten auf Aufträge und LV-Positionen in einem einfachen, nachvollziehbaren Ablauf.',
+    focusTitle: 'Ihr Fokus',
+    focusText:
+      'Sie konzentrieren sich auf die operative Erfassung und Zuordnung der Leistungen, während Auswertung und Verwaltung zentral weitergeführt werden.',
+  },
+}
+
+const systemCards = [
+  {
+    eyebrow: 'Arbeitszeiten',
+    title: 'Saubere Tagesdaten',
+    text: 'Arbeitszeiten und Fehlzeiten werden zentral erfasst und bilden die verlässliche Grundlage für alle weiteren Prozesse.',
   },
   {
-    title: 'Vorarbeiter-Dashboard',
-    description:
-      'Arbeitszeiten auf Aufträge und LV-Positionen zuordnen und operative Tagesdaten strukturiert pflegen.',
-    href: '/foreman',
-  },
-]
-
-const moduleCards = [
-  {
-    eyebrow: 'Operativ',
-    title: 'Arbeitszeiten & Aufträge',
-    text: 'Tageszeiten werden zentral gepflegt und anschließend fachlich auf Aufträge und LV-Positionen verschrieben.',
-    href: '/datensammlung',
-    linkLabel: 'Datensammlung öffnen',
+    eyebrow: 'Aufträge',
+    title: 'Nachvollziehbare Verschreibung',
+    text: 'Leistungen werden strukturiert auf Aufträge und LV-Positionen zugeordnet und bleiben dadurch jederzeit prüfbar.',
   },
   {
     eyebrow: 'Reisekosten',
-    title: 'Stammdaten, Erfassung und Export',
-    text: 'Reisekosten können pro Mitarbeiter vorbereitet, monatlich erfasst und anschließend als PDF oder Excel exportiert werden.',
-    href: '/travel-expenses',
-    linkLabel: 'Reisekosten öffnen',
-  },
-  {
-    eyebrow: 'Controlling',
-    title: 'Monitoring & KPI Dashboard',
-    text: 'Stunden, Fehlzeiten, interne vs. externe Leistung und Reisekosten werden übersichtlich ausgewertet.',
-    href: '/kpi-dashboard',
-    linkLabel: 'KPI Dashboard öffnen',
-  },
-]
-
-const quickLinks = [
-  {
-    title: 'Mitarbeiter',
-    href: '/employees',
-  },
-  {
-    title: 'Aufträge',
-    href: '/projects',
-  },
-  {
-    title: 'Reisekosten Stammdaten',
-    href: '/travel-master',
-  },
-  {
-    title: 'Reisekosten Erfassung',
-    href: '/travel-expenses',
-  },
-  {
-    title: 'KPI Dashboard',
-    href: '/kpi-dashboard',
+    title: 'Erfassung bis Export',
+    text: 'Reisekosten sind im selben System vorbereitet, erfassbar und als PDF oder Excel ausleitbar.',
   },
 ]
 
 const workflowSteps = [
   {
     step: '01',
-    title: 'Tagesdaten erfassen',
-    text: 'Arbeitszeiten oder Fehlzeiten werden zentral und nachvollziehbar gepflegt.',
+    title: 'Erfassen',
+    text: 'Tageszeiten und Fehlzeiten werden strukturiert gepflegt.',
   },
   {
     step: '02',
-    title: 'Aufträge verschreiben',
-    text: 'Vorarbeiter ordnen die geleisteten Stunden sauber den passenden Aufträgen und LV-Positionen zu.',
+    title: 'Zuordnen',
+    text: 'Leistungen werden den passenden Aufträgen und LV-Positionen zugewiesen.',
   },
   {
     step: '03',
-    title: 'Auswerten & exportieren',
-    text: 'Monitoring, KPIs, Reisekosten und Reports schaffen Übersicht für Büro und Projektsteuerung.',
+    title: 'Auswerten',
+    text: 'Monitoring, KPIs und Exporte machen Fortschritt und Kosten transparent.',
   },
 ]
 
-export default function HomePage() {
+export default async function HomePage() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  let role: Role = 'admin'
+  let fullName = 'Benutzer'
+
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, role')
+      .eq('id', user.id)
+      .single()
+
+    if (profile?.full_name) {
+      fullName = profile.full_name
+    }
+
+    if (
+      profile?.role === 'geschaeftsfuehrer' ||
+      profile?.role === 'admin' ||
+      profile?.role === 'vorarbeiter'
+    ) {
+      role = profile.role
+    }
+  }
+
+  const content = roleContent[role]
+
   return (
     <div className="space-y-8">
       <section className="relative overflow-hidden rounded-[36px] border border-white/40 bg-white/60 p-8 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur-2xl sm:p-10">
@@ -89,78 +117,51 @@ export default function HomePage() {
         <div className="relative grid gap-10 xl:grid-cols-[1.2fr_0.8fr]">
           <div>
             <p className="text-sm font-medium uppercase tracking-[0.28em] text-slate-500">
-              Zentrales System
+              Willkommen
             </p>
 
             <h1 className="mt-4 max-w-4xl text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
-              Arbeitszeiten, Aufträge, Reisekosten und Controlling in einem
-              System.
+              {content.title}
             </h1>
 
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-              Dieses Tool verbindet operative Erfassung, kaufmännische
-              Nachvollziehbarkeit und Auswertung in einer modernen Oberfläche
-              für Büro, Vorarbeiter und Projektverantwortliche.
+              {content.subtitle}
             </p>
 
-            <div className="mt-8 flex flex-wrap gap-3">
-              {primaryActions.map((action) => (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  className="rounded-2xl bg-blue-950 px-5 py-3 text-sm font-medium text-white shadow transition hover:bg-blue-900"
-                >
-                  {action.title}
-                </Link>
-              ))}
-            </div>
-
-            <div className="mt-8 flex flex-wrap gap-3">
-              {quickLinks.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="rounded-2xl border border-slate-200 bg-white/75 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-900"
-                >
-                  {item.title}
-                </Link>
-              ))}
+            <div className="mt-8 rounded-3xl border border-blue-100/80 bg-blue-50/70 p-5 shadow-sm">
+              <p className="text-sm font-medium text-slate-500">Angemeldet als</p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-900">
+                {fullName}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Rolle: {content.label}
+              </p>
             </div>
           </div>
 
           <div className="grid gap-4">
             <div className="rounded-3xl border border-white/50 bg-white/75 p-5 shadow-sm">
-              <p className="text-sm font-medium text-slate-500">Fokus</p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                Operative Steuerung
-              </h2>
+              <p className="text-sm font-medium text-slate-500">
+                {content.focusTitle}
+              </p>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                Zeiten, Auftragsverschreibung und Reisekosten werden nicht mehr
-                getrennt gedacht, sondern in einem zusammenhängenden Prozess
-                gepflegt.
+                {content.focusText}
               </p>
             </div>
 
             <div className="rounded-3xl border border-blue-100/80 bg-blue-50/70 p-5 shadow-sm">
-              <p className="text-sm font-medium text-slate-500">Nutzen</p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                Transparenz & Nachvollziehbarkeit
-              </h2>
+              <p className="text-sm font-medium text-slate-500">Systemnutzen</p>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                Vollständigkeit, Stundenverteilung, interne und externe Leistung
-                sowie Reisekosten bleiben jederzeit sichtbar.
+                Alle zentralen Abläufe werden in einer konsistenten Struktur
+                zusammengeführt — von der Erfassung bis zur Auswertung.
               </p>
             </div>
 
             <div className="rounded-3xl border border-white/50 bg-white/75 p-5 shadow-sm">
-              <p className="text-sm font-medium text-slate-500">Ausblick</p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                Skalierbar für Wachstum
-              </h2>
+              <p className="text-sm font-medium text-slate-500">Navigation</p>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                Die Struktur ist bereits so aufgebaut, dass Rollen, weitere
-                Freigaben, Exporte und zusätzliche KPIs später sauber ergänzt
-                werden können.
+                Die für Ihre Rolle freigegebenen Bereiche finden Sie links in der
+                Seitenleiste.
               </p>
             </div>
           </div>
@@ -170,14 +171,14 @@ export default function HomePage() {
       <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-[32px] border border-white/40 bg-white/60 p-6 backdrop-blur-xl">
           <p className="text-sm font-medium uppercase tracking-[0.22em] text-slate-500">
-            Kernmodule
+            Kernbereiche
           </p>
           <h2 className="mt-3 text-3xl font-semibold text-slate-900">
-            Die wichtigsten Bereiche des Tools.
+            Die zentralen Funktionen des Systems.
           </h2>
 
           <div className="mt-6 grid gap-4">
-            {moduleCards.map((card) => (
+            {systemCards.map((card) => (
               <div
                 key={card.title}
                 className="rounded-3xl border border-white/40 bg-white/70 p-5 shadow-sm"
@@ -191,12 +192,6 @@ export default function HomePage() {
                 <p className="mt-3 text-sm leading-6 text-slate-600">
                   {card.text}
                 </p>
-                <Link
-                  href={card.href}
-                  className="mt-4 inline-flex rounded-xl border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-white"
-                >
-                  {card.linkLabel}
-                </Link>
               </div>
             ))}
           </div>
@@ -204,10 +199,10 @@ export default function HomePage() {
 
         <div className="rounded-[32px] border border-white/40 bg-white/60 p-6 backdrop-blur-xl">
           <p className="text-sm font-medium uppercase tracking-[0.22em] text-slate-500">
-            Workflow
+            Systemablauf
           </p>
           <h2 className="mt-3 text-3xl font-semibold text-slate-900">
-            So greift alles ineinander.
+            So greifen die Prozesse ineinander.
           </h2>
 
           <div className="mt-8 space-y-4">

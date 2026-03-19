@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import WorkdayCreateModal from '@/components/workday-create-modal'
-import ActionCard from '@/components/action-card'
+import WorkdayImportModal from '@/components/workday-import-modal'
 import TravelExpenseExportModal from '@/components/travel-expense-export-modal'
 
 function getCurrentMonthAndYear() {
@@ -134,6 +134,7 @@ type Project = {
   id: string
   project_number: string | null
   name: string
+  status?: string | null
 }
 
 type Workday = {
@@ -172,7 +173,7 @@ export default async function AdminPage({
 
   const { data: allProjects, error: projectsError } = await supabase
     .from('projects')
-    .select('id, project_number, name')
+    .select('id, project_number, name, status')
     .order('project_number', { ascending: true })
 
   const range =
@@ -221,10 +222,12 @@ export default async function AdminPage({
     )
   })
 
-  const projectHours = (allProjects ?? []).map((project) => ({
-    project,
-    hours: projectHoursMap.get(project.id) ?? 0,
-  }))
+  const activeProjectHours = (allProjects ?? [])
+    .filter((project) => project.status === 'active')
+    .map((project) => ({
+      project,
+      hours: projectHoursMap.get(project.id) ?? 0,
+    }))
 
   const assignmentsByWorkday = new Map<string, AssignmentEntry[]>()
   assignments.forEach((assignment) => {
@@ -382,27 +385,14 @@ export default async function AdminPage({
         <p className="text-red-600">Fehler Tagesdaten: {workdaysError.message}</p>
       )}
 
-      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {employees && <WorkdayCreateModal employees={employees as Employee[]} />}
 
-        <ActionCard
-          title="Datensammlung öffnen"
-          description="Öffne die Übersicht aller erfassten Tagesdaten und Zuordnungen."
-          href="/datensammlung"
-          eyebrow="Navigation"
-        />
+        {employees && <WorkdayImportModal employees={employees as Employee[]} />}
 
         {employees && (
           <TravelExpenseExportModal employees={employees as Employee[]} />
         )}
-
-        <ActionCard
-          title="KPI Dashboard"
-          description="Öffne die strategische Auswertung von Stunden, Fehlzeiten und Reisekosten."
-          href="/kpi-dashboard"
-          eyebrow="Auswertung"
-          accent="neutral"
-        />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
@@ -414,13 +404,14 @@ export default async function AdminPage({
             Stunden pro Auftrag
           </h2>
           <p className="mt-2 text-sm text-slate-600">
-            Summe aller verschriebenen Stunden im gewählten Zeitraum.
+            Summe aller verschriebenen Stunden im gewählten Zeitraum. Angezeigt
+            werden hier nur aktive Aufträge.
           </p>
 
           <div className="mt-6 space-y-4">
-            {projectHours.length > 0 ? (
-              projectHours.map((item) => {
-                const maxHours = Math.max(...projectHours.map((p) => p.hours), 1)
+            {activeProjectHours.length > 0 ? (
+              activeProjectHours.map((item) => {
+                const maxHours = Math.max(...activeProjectHours.map((p) => p.hours), 1)
 
                 return (
                   <div key={item.project.id}>
@@ -444,7 +435,7 @@ export default async function AdminPage({
               })
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-white/50 px-4 py-6 text-sm text-slate-500">
-                Für den gewählten Zeitraum liegen noch keine verschriebenen Stunden vor.
+                Für den gewählten Zeitraum liegen keine aktiven Aufträge vor.
               </div>
             )}
           </div>

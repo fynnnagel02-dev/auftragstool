@@ -287,9 +287,9 @@ export default async function DatensammlungPage({
         </p>
       )}
 
-      <div className="mt-8 overflow-x-auto rounded-2xl border border-white/40 bg-white/60 backdrop-blur-xl">
+      <div className="mt-8 overflow-x-auto rounded-2xl border border-white/40 bg-white/60 backdrop-blur-xl max-h-[70vh]">
         <table className="min-w-[1900px] w-full text-left text-sm">
-          <thead className="border-b border-white/40 bg-slate-50/60 text-slate-500">
+          <thead className="sticky top-0 z-20 border-b border-white/40 bg-slate-50/95 text-slate-500 backdrop-blur">
             <tr>
               <th className="px-4 py-3 font-medium">Mitarbeiter</th>
               <th className="px-4 py-3 font-medium">Datum</th>

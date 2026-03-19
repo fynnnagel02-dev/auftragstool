@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import ProjectLvCreateModal from '@/components/project-lv-create-modal'
 import ProjectLvEditModal from '@/components/project-lv-edit-modal'
+import ProjectLvImportModal from '@/components/project-lv-import-modal'
 
 export default async function ProjectDetailPage({
   params,
@@ -62,12 +63,15 @@ export default async function ProjectDetailPage({
       </div>
 
       <div className="mt-8">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-2xl font-semibold text-slate-900">
             LV-Positionen
           </h2>
 
-          <ProjectLvCreateModal projectId={project.id} />
+          <div className="flex flex-wrap items-center gap-3">
+            <ProjectLvImportModal projectId={project.id} />
+            <ProjectLvCreateModal projectId={project.id} />
+          </div>
         </div>
 
         {lvError && (

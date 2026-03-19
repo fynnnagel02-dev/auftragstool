@@ -404,9 +404,9 @@ export default function TravelExpenseMonthForm({
           </div>
         )}
 
-        <div className="mt-6 overflow-x-auto rounded-2xl border border-white/40 bg-white/70">
+        <div className="mt-6 overflow-x-auto rounded-2xl border border-white/40 bg-white/70 max-h-[70vh]">
           <table className="min-w-[2100px] w-full text-left text-sm">
-            <thead className="border-b border-white/40 bg-slate-50/70 text-slate-500">
+            <thead className="sticky top-0 z-20 border-b border-white/40 bg-slate-50/95 text-slate-500 backdrop-blur">
               <tr>
                 <th className="px-4 py-3 font-medium">Wochentag</th>
                 <th className="px-4 py-3 font-medium">Datum</th>
