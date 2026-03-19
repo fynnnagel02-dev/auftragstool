@@ -10,6 +10,11 @@ type Employee = {
   full_name: string
 }
 
+type FilterGroup = {
+  id: string
+  name: string
+}
+
 type Project = {
   id: string
   project_number: string | null
@@ -27,11 +32,13 @@ type LvPosition = {
 
 type Workday = {
   id: string
+  employee_id: string
   work_date: string
   start_time: string | null
   end_time: string | null
   calculated_hours: number | null
   absence_type: string | null
+  employee_label: string
 }
 
 type ExistingEntry = {
@@ -59,7 +66,9 @@ function createLocalId() {
 
 export default function ForemanAssignmentForm({
   employees,
+  filterGroups,
   selectedEmployeeId,
+  selectedGroupId,
   selectedWeek,
   workdays,
   projects,
@@ -67,7 +76,9 @@ export default function ForemanAssignmentForm({
   existingEntries,
 }: {
   employees: Employee[]
+  filterGroups: FilterGroup[]
   selectedEmployeeId: string
+  selectedGroupId: string
   selectedWeek: string
   workdays: Workday[]
   projects: Project[]
@@ -202,12 +213,23 @@ export default function ForemanAssignmentForm({
   }, [rows, lvPositions])
 
   function handleFilterSubmit(formData: FormData) {
-    const employeeId = formData.get('employeeId')?.toString()
+    const employeeId = formData.get('employeeId')?.toString() || ''
+    const groupId = formData.get('groupId')?.toString() || ''
     const week = formData.get('week')?.toString()
 
-    if (!employeeId || !week) return
+    if (!week) return
 
-    router.push(`/foreman?employeeId=${employeeId}&week=${week}`)
+    if (groupId) {
+      router.push(`/foreman?groupId=${groupId}&week=${week}`)
+      return
+    }
+
+    if (employeeId) {
+      router.push(`/foreman?employeeId=${employeeId}&week=${week}`)
+      return
+    }
+
+    router.push(`/foreman?week=${week}`)
   }
 
   function handleSave() {
@@ -261,7 +283,7 @@ export default function ForemanAssignmentForm({
 
       if (Number(totalAssigned.toFixed(2)) !== Number(targetHours.toFixed(2))) {
         setError(
-          `Die Summe der Auftragszeiten am ${workday?.work_date} muss exakt ${targetHours} h ergeben.`
+          `Die Summe der Auftragszeiten am ${workday?.work_date} für ${workday?.employee_label} muss exakt ${targetHours} h ergeben.`
         )
         return
       }
@@ -290,19 +312,38 @@ export default function ForemanAssignmentForm({
       <div className="rounded-3xl border border-white/40 bg-white/60 p-5 backdrop-blur-xl">
         <h2 className="text-xl font-semibold text-slate-900">Filter</h2>
 
-        <form action={handleFilterSubmit} className="mt-4 grid gap-5 md:grid-cols-3">
+        <form action={handleFilterSubmit} className="mt-4 grid gap-5 md:grid-cols-4">
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">
               Mitarbeiter
             </label>
             <select
               name="employeeId"
-              defaultValue={selectedEmployeeId}
+              defaultValue={selectedGroupId ? '' : selectedEmployeeId}
               className="w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             >
+              <option value="">Mitarbeiter auswählen</option>
               {employees.map((employee) => (
                 <option key={employee.id} value={employee.id}>
                   {employee.employee_number} – {employee.full_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Filtergruppe
+            </label>
+            <select
+              name="groupId"
+              defaultValue={selectedGroupId}
+              className="w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">Keine Filtergruppe</option>
+              {filterGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
                 </option>
               ))}
             </select>
@@ -329,6 +370,12 @@ export default function ForemanAssignmentForm({
             </button>
           </div>
         </form>
+
+        <p className="mt-3 text-sm text-slate-500">
+          Wenn eine Filtergruppe gewählt ist, hat diese Vorrang. Es werden dann
+          alle vorhandenen Arbeitszeiten der Gruppenmitglieder in der gewählten
+          Woche geladen.
+        </p>
       </div>
 
       <div className="rounded-3xl border border-white/40 bg-white/60 p-5 backdrop-blur-xl">
@@ -382,6 +429,9 @@ export default function ForemanAssignmentForm({
                     <h3 className="text-lg font-semibold text-slate-900">
                       {day.work_date}
                     </h3>
+                    <p className="mt-1 text-sm font-medium text-slate-700">
+                      {day.employee_label}
+                    </p>
                     <p className="mt-1 text-sm text-slate-600">
                       {day.start_time} – {day.end_time} | Arbeitszeit:{' '}
                       {day.calculated_hours} h
@@ -507,7 +557,7 @@ export default function ForemanAssignmentForm({
 
           {visibleWorkdays.length === 0 && (
             <div className="rounded-2xl border border-white/40 bg-white/60 px-4 py-6 text-center text-slate-500">
-              Für diesen Mitarbeiter und diese Woche liegen keine Arbeitstage vor.
+              Für die gewählte Auswahl und diese Woche liegen keine Arbeitstage vor.
             </div>
           )}
         </div>

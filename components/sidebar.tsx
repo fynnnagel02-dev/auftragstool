@@ -35,6 +35,7 @@ const navGroups = [
       { href: '/employees', label: 'Mitarbeiter' },
       { href: '/projects', label: 'Aufträge' },
       { href: '/travel-master', label: 'Reisekosten Stammdaten' },
+      { href: '/settings', label: 'Einstellungen' },
     ],
   },
   {
@@ -55,6 +56,7 @@ const allowedByRole: Record<Role, string[]> = {
     '/projects',
     '/travel-master',
     '/kpi-dashboard',
+    '/settings',
   ],
   admin: [
     '/',
@@ -66,6 +68,7 @@ const allowedByRole: Record<Role, string[]> = {
     '/projects',
     '/travel-master',
     '/kpi-dashboard',
+    '/settings',
   ],
   vorarbeiter: ['/', '/foreman'],
 }

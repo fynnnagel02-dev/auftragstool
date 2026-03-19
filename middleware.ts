@@ -15,6 +15,7 @@ const rolePermissions: Record<Role, string[]> = {
     '/projects',
     '/travel-master',
     '/kpi-dashboard',
+    '/settings',
   ],
   admin: [
     '/',
@@ -26,6 +27,7 @@ const rolePermissions: Record<Role, string[]> = {
     '/projects',
     '/travel-master',
     '/kpi-dashboard',
+    '/settings',
   ],
   vorarbeiter: ['/', '/foreman'],
 }
@@ -78,7 +80,6 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Nicht eingeloggt
   if (!user) {
     if (isLoginPage) return response
 
@@ -87,8 +88,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Eingeloggt + auf Login-Seite -> erstmal NICHT sofort umleiten,
-  // sondern erst Profil/Rolle sauber prüfen
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role')
@@ -97,7 +96,6 @@ export async function middleware(request: NextRequest) {
 
   const role = profile?.role as Role | undefined
 
-  // Falls Profil oder Rolle fehlt -> nur Login zulassen
   if (profileError || !role) {
     if (isLoginPage) return response
 
@@ -106,7 +104,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Eingeloggt + gültige Rolle + Login-Seite
   if (isLoginPage) {
     const url = request.nextUrl.clone()
     url.pathname = getDefaultRouteForRole(role)
