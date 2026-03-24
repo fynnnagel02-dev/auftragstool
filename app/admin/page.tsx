@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import WorkdayCreateModal from '@/components/workday-create-modal'
 import WorkdayImportModal from '@/components/workday-import-modal'
 import TravelExpenseExportModal from '@/components/travel-expense-export-modal'
@@ -162,18 +162,40 @@ export default async function AdminPage({
 }) {
   const resolvedSearchParams = await searchParams
   const current = getCurrentMonthAndYear()
+  const supabase = await createClient()
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="text-red-600">Kein Benutzer gefunden.</p>
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile?.company_id) {
+    return <p className="text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const companyId = profile.company_id
   const selectedMonth = resolvedSearchParams?.month || String(current.month)
   const selectedYear = Number(resolvedSearchParams?.year) || current.year
 
   const { data: employees, error: employeesError } = await supabase
     .from('employees')
     .select('id, employee_number, full_name, is_active')
+    .eq('company_id', companyId)
     .order('employee_number', { ascending: true })
 
   const { data: allProjects, error: projectsError } = await supabase
     .from('projects')
     .select('id, project_number, name, status')
+    .eq('company_id', companyId)
     .order('project_number', { ascending: true })
 
   const range =
@@ -184,6 +206,7 @@ export default async function AdminPage({
   const { data: workdays, error: workdaysError } = await supabase
     .from('employee_workdays')
     .select('id, employee_id, work_date, calculated_hours, absence_type')
+    .eq('company_id', companyId)
     .gte('work_date', range.from)
     .lt('work_date', range.to)
 
@@ -195,6 +218,7 @@ export default async function AdminPage({
     const { data: assignmentsData, error: assignmentsError } = await supabase
       .from('workday_project_entries')
       .select('id, workday_id, project_id, assigned_hours')
+      .eq('company_id', companyId)
       .in('workday_id', workdayIds)
 
     if (assignmentsError) {
@@ -209,7 +233,6 @@ export default async function AdminPage({
   }
 
   const projectHoursMap = new Map<string, number>()
-
   ;(allProjects ?? []).forEach((project) => {
     projectHoursMap.set(project.id, 0)
   })
@@ -243,7 +266,6 @@ export default async function AdminPage({
   })
 
   const activeEmployees = (employees ?? []).filter((employee) => employee.is_active)
-
   const businessDays = getBusinessDaysForRange(range.from, range.to, selectedYear)
 
   const expectedPairs = activeEmployees.flatMap((employee) =>

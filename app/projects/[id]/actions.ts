@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 type ImportRow = {
   order_position: string
@@ -13,10 +13,56 @@ function normalizeValue(value: string) {
   return value.trim()
 }
 
+async function getCurrentCompanyContext() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    throw new Error('Nicht eingeloggt.')
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (error || !profile?.company_id) {
+    throw new Error('Company konnte nicht ermittelt werden.')
+  }
+
+  return {
+    supabase,
+    companyId: profile.company_id,
+  }
+}
+
+async function ensureProjectBelongsToCompany(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  companyId: string,
+  projectId: string
+) {
+  const { data: project, error } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', projectId)
+    .eq('company_id', companyId)
+    .maybeSingle()
+
+  if (error || !project) {
+    throw new Error('Der ausgewählte Auftrag gehört nicht zu deiner Firma.')
+  }
+}
+
 export async function createProjectLvPosition(
   projectId: string,
   formData: FormData
 ) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   const orderPosition = formData.get('orderPosition')?.toString().trim()
   const lvPosition = formData.get('lvPosition')?.toString().trim()
   const lvDescription = formData.get('lvDescription')?.toString().trim()
@@ -28,7 +74,10 @@ export async function createProjectLvPosition(
     )
   }
 
+  await ensureProjectBelongsToCompany(supabase, companyId, projectId)
+
   const { error } = await supabase.from('project_lv_positions').insert({
+    company_id: companyId,
     project_id: projectId,
     order_position: orderPosition,
     lv_position: lvPosition,
@@ -41,6 +90,8 @@ export async function createProjectLvPosition(
   }
 
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath('/projects')
+  revalidatePath('/foreman')
 }
 
 export async function updateProjectLvPosition(
@@ -48,6 +99,8 @@ export async function updateProjectLvPosition(
   projectId: string,
   formData: FormData
 ) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   const orderPosition = formData.get('orderPosition')?.toString().trim()
   const lvPosition = formData.get('lvPosition')?.toString().trim()
   const lvDescription = formData.get('lvDescription')?.toString().trim()
@@ -59,6 +112,8 @@ export async function updateProjectLvPosition(
     )
   }
 
+  await ensureProjectBelongsToCompany(supabase, companyId, projectId)
+
   const { error } = await supabase
     .from('project_lv_positions')
     .update({
@@ -68,38 +123,52 @@ export async function updateProjectLvPosition(
       is_active: isActive,
     })
     .eq('id', positionId)
+    .eq('project_id', projectId)
+    .eq('company_id', companyId)
 
   if (error) {
     throw new Error(error.message)
   }
 
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath('/projects')
+  revalidatePath('/foreman')
 }
 
 export async function deleteProjectLvPosition(
   positionId: string,
   projectId: string
 ) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   if (!positionId || !projectId) {
     throw new Error('Keine LV-Position angegeben.')
   }
+
+  await ensureProjectBelongsToCompany(supabase, companyId, projectId)
 
   const { error } = await supabase
     .from('project_lv_positions')
     .delete()
     .eq('id', positionId)
+    .eq('project_id', projectId)
+    .eq('company_id', companyId)
 
   if (error) {
     throw new Error(error.message)
   }
 
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath('/projects')
+  revalidatePath('/foreman')
 }
 
 export async function importProjectLvPositions(
   projectId: string,
   rows: ImportRow[]
 ) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   if (!projectId) {
     throw new Error('Kein Auftrag angegeben.')
   }
@@ -107,6 +176,8 @@ export async function importProjectLvPositions(
   if (!rows || rows.length === 0) {
     throw new Error('Es wurden keine LV-Positionen zum Import übergeben.')
   }
+
+  await ensureProjectBelongsToCompany(supabase, companyId, projectId)
 
   const cleanedRows = rows.map((row, index) => {
     const orderPosition = normalizeValue(row.order_position || '')
@@ -126,6 +197,7 @@ export async function importProjectLvPositions(
     }
 
     return {
+      company_id: companyId,
       project_id: projectId,
       order_position: orderPosition,
       lv_position: lvPosition,
@@ -159,6 +231,7 @@ export async function importProjectLvPositions(
   const { data: existingRows, error: existingError } = await supabase
     .from('project_lv_positions')
     .select('order_position, lv_position')
+    .eq('company_id', companyId)
     .eq('project_id', projectId)
 
   if (existingError) {
@@ -195,4 +268,6 @@ export async function importProjectLvPositions(
   }
 
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath('/projects')
+  revalidatePath('/foreman')
 }

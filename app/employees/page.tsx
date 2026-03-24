@@ -1,11 +1,34 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import EmployeeCreateModal from '@/components/employee-create-modal'
 import EmployeeEditModal from '@/components/employee-edit-modal'
 
 export default async function EmployeesPage() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="text-red-600">Kein Benutzer gefunden.</p>
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile?.company_id) {
+    return <p className="text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const companyId = profile.company_id
+
   const { data: employees, error } = await supabase
     .from('employees')
     .select('*')
+    .eq('company_id', companyId)
     .order('employee_number', { ascending: true })
 
   return (
@@ -22,9 +45,7 @@ export default async function EmployeesPage() {
         <EmployeeCreateModal />
       </div>
 
-      {error && (
-        <p className="mt-4 text-red-600">Fehler: {error.message}</p>
-      )}
+      {error && <p className="mt-4 text-red-600">Fehler: {error.message}</p>}
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-white/40 bg-white/60 backdrop-blur-xl">
         <table className="min-w-[1100px] w-full text-left text-sm">
@@ -61,6 +82,17 @@ export default async function EmployeesPage() {
                 </td>
               </tr>
             ))}
+
+            {employees && employees.length === 0 && (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-4 py-8 text-center text-slate-500"
+                >
+                  Für diese Firma sind noch keine Mitarbeiter angelegt.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

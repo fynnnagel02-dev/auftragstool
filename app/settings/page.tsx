@@ -48,6 +48,7 @@ export default async function SettingsPage() {
   const { data: groupMembers, error: membersError } = await supabase
     .from('employee_filter_group_members')
     .select('id, group_id, employee_id')
+    .eq('company_id', companyId)
 
   const { data: employees, error: employeesError } = await supabase
     .from('employees')

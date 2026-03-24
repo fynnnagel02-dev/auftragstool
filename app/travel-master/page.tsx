@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import TravelProfileEditModal from '@/components/travel-profile-edit-modal'
 
 type Employee = {
@@ -29,9 +29,32 @@ type Project = {
 }
 
 export default async function TravelMasterPage() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="text-red-600">Kein Benutzer gefunden.</p>
+  }
+
+  const { data: profileRow, error: profileRowError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileRowError || !profileRow?.company_id) {
+    return <p className="text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const companyId = profileRow.company_id
+
   const { data: employees, error: employeesError } = await supabase
     .from('employees')
     .select('id, employee_number, full_name')
+    .eq('company_id', companyId)
     .order('employee_number', { ascending: true })
 
   const { data: profiles, error: profilesError } = await supabase
@@ -39,16 +62,19 @@ export default async function TravelMasterPage() {
     .select(
       'employee_id, home_address, license_plate, distance_home_company_km, time_home_company_min'
     )
+    .eq('company_id', companyId)
 
   const { data: routes, error: routesError } = await supabase
     .from('employee_travel_project_routes')
     .select(
       'employee_id, project_id, distance_home_project_km, time_home_project_min'
     )
+    .eq('company_id', companyId)
 
   const { data: projects, error: projectsError } = await supabase
     .from('projects')
     .select('id, project_number, name')
+    .eq('company_id', companyId)
     .order('project_number', { ascending: true })
 
   if (employeesError) {
@@ -56,11 +82,15 @@ export default async function TravelMasterPage() {
   }
 
   if (profilesError) {
-    return <p className="text-red-600">Fehler Reisekosten-Profile: {profilesError.message}</p>
+    return (
+      <p className="text-red-600">Fehler Reisekosten-Profile: {profilesError.message}</p>
+    )
   }
 
   if (routesError) {
-    return <p className="text-red-600">Fehler Reisekosten-Routen: {routesError.message}</p>
+    return (
+      <p className="text-red-600">Fehler Reisekosten-Routen: {routesError.message}</p>
+    )
   }
 
   if (projectsError) {
@@ -112,7 +142,7 @@ export default async function TravelMasterPage() {
 
           <tbody>
             {(employees ?? []).map((employee) => {
-              const profile = profileMap.get(employee.id) ?? null
+              const travelProfile = profileMap.get(employee.id) ?? null
               const employeeRoutes = routesMap.get(employee.id) ?? []
 
               return (
@@ -124,25 +154,25 @@ export default async function TravelMasterPage() {
                   <td className="px-4 py-3 font-medium text-slate-800">
                     {employee.full_name}
                   </td>
-                  <td className="px-4 py-3">{profile?.home_address || '—'}</td>
-                  <td className="px-4 py-3">{profile?.license_plate || '—'}</td>
+                  <td className="px-4 py-3">{travelProfile?.home_address || '—'}</td>
+                  <td className="px-4 py-3">{travelProfile?.license_plate || '—'}</td>
                   <td className="px-4 py-3">
-                    {profile?.distance_home_company_km !== null &&
-                    profile?.distance_home_company_km !== undefined
-                      ? `${profile.distance_home_company_km} km`
+                    {travelProfile?.distance_home_company_km !== null &&
+                    travelProfile?.distance_home_company_km !== undefined
+                      ? `${travelProfile.distance_home_company_km} km`
                       : '—'}
                   </td>
                   <td className="px-4 py-3">
-                    {profile?.time_home_company_min !== null &&
-                    profile?.time_home_company_min !== undefined
-                      ? `${profile.time_home_company_min} Min.`
+                    {travelProfile?.time_home_company_min !== null &&
+                    travelProfile?.time_home_company_min !== undefined
+                      ? `${travelProfile.time_home_company_min} Min.`
                       : '—'}
                   </td>
                   <td className="px-4 py-3">{employeeRoutes.length}</td>
                   <td className="px-4 py-3">
                     <TravelProfileEditModal
                       employee={employee}
-                      profile={profile}
+                      profile={travelProfile}
                       routes={employeeRoutes}
                       projects={projects ?? []}
                     />
@@ -150,6 +180,17 @@ export default async function TravelMasterPage() {
                 </tr>
               )
             })}
+
+            {employees && employees.length === 0 && (
+              <tr>
+                <td
+                  colSpan={8}
+                  className="px-4 py-8 text-center text-slate-500"
+                >
+                  Für diese Firma sind noch keine Mitarbeiter vorhanden.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

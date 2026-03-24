@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import ProjectLvCreateModal from '@/components/project-lv-create-modal'
 import ProjectLvEditModal from '@/components/project-lv-edit-modal'
@@ -10,16 +10,39 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="text-red-600">Kein Benutzer gefunden.</p>
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile?.company_id) {
+    return <p className="text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const companyId = profile.company_id
 
   const { data: project, error } = await supabase
     .from('projects')
     .select('*')
     .eq('id', id)
+    .eq('company_id', companyId)
     .single()
 
   const { data: lvPositions, error: lvError } = await supabase
     .from('project_lv_positions')
     .select('*')
+    .eq('company_id', companyId)
     .eq('project_id', id)
     .order('order_position', { ascending: true })
 

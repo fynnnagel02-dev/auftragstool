@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import WorkdayEditModal from '@/components/workday-edit-modal'
 
 function getCurrentMonthAndYear() {
@@ -89,7 +89,27 @@ export default async function DatensammlungPage({
 }) {
   const resolvedSearchParams = await searchParams
   const current = getCurrentMonthAndYear()
+  const supabase = await createClient()
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="text-red-600">Kein Benutzer gefunden.</p>
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile?.company_id) {
+    return <p className="text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const companyId = profile.company_id
   const selectedMonth = Number(resolvedSearchParams?.month) || current.month
   const selectedYear = Number(resolvedSearchParams?.year) || current.year
   const selectedEmployeeId = resolvedSearchParams?.employeeId || 'all'
@@ -99,6 +119,7 @@ export default async function DatensammlungPage({
   const { data: employees, error: employeesError } = await supabase
     .from('employees')
     .select('id, employee_number, full_name')
+    .eq('company_id', companyId)
     .order('employee_number', { ascending: true })
 
   let workdaysQuery = supabase
@@ -119,6 +140,7 @@ export default async function DatensammlungPage({
         )
       `
     )
+    .eq('company_id', companyId)
     .gte('work_date', from)
     .lt('work_date', to)
     .order('work_date', { ascending: false })
@@ -148,6 +170,7 @@ export default async function DatensammlungPage({
           assigned_hours
         `
       )
+      .eq('company_id', companyId)
       .in('workday_id', workdayIds)
 
     if (entriesError) {
@@ -166,6 +189,7 @@ export default async function DatensammlungPage({
       const { data: projectsData, error: projectsError } = await supabase
         .from('projects')
         .select('id, project_number, name')
+        .eq('company_id', companyId)
         .in('id', projectIds)
 
       if (projectsError) {

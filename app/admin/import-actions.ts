@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import { calculateWorkHours } from '@/lib/calculate-work-hours'
 
 type ImportRow = {
@@ -41,7 +41,36 @@ function normalizeDate(value: string) {
   return `${year}-${month}-${day}`
 }
 
+async function getCurrentCompanyContext() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    throw new Error('Nicht eingeloggt.')
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (error || !profile?.company_id) {
+    throw new Error('Company konnte nicht ermittelt werden.')
+  }
+
+  return {
+    supabase,
+    companyId: profile.company_id,
+  }
+}
+
 export async function importEmployeeWorkdays(rows: ImportRow[]) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   if (!rows || rows.length === 0) {
     throw new Error('Es wurden keine Arbeitszeiten zum Import übergeben.')
   }
@@ -49,6 +78,7 @@ export async function importEmployeeWorkdays(rows: ImportRow[]) {
   const { data: employees, error: employeesError } = await supabase
     .from('employees')
     .select('id, employee_number')
+    .eq('company_id', companyId)
 
   if (employeesError) {
     throw new Error(employeesError.message)
@@ -99,6 +129,7 @@ export async function importEmployeeWorkdays(rows: ImportRow[]) {
     const calculatedHours = calculateWorkHours(startTime, endTime)
 
     return {
+      company_id: companyId,
       employee_id: employeeId,
       employee_number: employeeNumber,
       work_date: workDate,
@@ -135,6 +166,7 @@ export async function importEmployeeWorkdays(rows: ImportRow[]) {
   const { data: existingWorkdays, error: existingError } = await supabase
     .from('employee_workdays')
     .select('employee_id, work_date')
+    .eq('company_id', companyId)
     .in('employee_id', employeeIds)
     .gte('work_date', minDate)
     .lte('work_date', maxDate)
@@ -158,6 +190,7 @@ export async function importEmployeeWorkdays(rows: ImportRow[]) {
 
   const { error: insertError } = await supabase.from('employee_workdays').insert(
     preparedRows.map((row) => ({
+      company_id: row.company_id,
       employee_id: row.employee_id,
       work_date: row.work_date,
       start_time: row.start_time,
@@ -174,4 +207,6 @@ export async function importEmployeeWorkdays(rows: ImportRow[]) {
 
   revalidatePath('/admin')
   revalidatePath('/datensammlung')
+  revalidatePath('/foreman')
+  revalidatePath('/kpi-dashboard')
 }

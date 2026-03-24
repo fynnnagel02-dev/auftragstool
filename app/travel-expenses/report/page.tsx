@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import AutoPrint from '@/components/auto-print'
 import ReportPrintButton from '@/components/report-print-button'
 
@@ -85,6 +85,7 @@ export default async function TravelExpenseReportPage({
   }>
 }) {
   const resolvedSearchParams = await searchParams
+  const supabase = await createClient()
 
   const employeeId = resolvedSearchParams?.employeeId || ''
   const month = Number(resolvedSearchParams?.month)
@@ -95,11 +96,31 @@ export default async function TravelExpenseReportPage({
     return <p className="p-8 text-red-600">Fehlende Exportparameter.</p>
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="p-8 text-red-600">Nicht eingeloggt.</p>
+  }
+
+  const { data: profileRow, error: profileRowError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileRowError || !profileRow?.company_id) {
+    return <p className="p-8 text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const companyId = profileRow.company_id
   const { from, to } = getMonthDateRange(month, year)
 
   const { data: employee, error: employeeError } = await supabase
     .from('employees')
     .select('id, employee_number, full_name, cost_center')
+    .eq('company_id', companyId)
     .eq('id', employeeId)
     .single<EmployeeRow>()
 
@@ -111,9 +132,10 @@ export default async function TravelExpenseReportPage({
     )
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: travelProfile, error: profileError } = await supabase
     .from('employee_travel_profiles')
     .select('home_address, license_plate')
+    .eq('company_id', companyId)
     .eq('employee_id', employeeId)
     .maybeSingle<TravelProfileRow>()
 
@@ -145,6 +167,7 @@ export default async function TravelExpenseReportPage({
         km_allowance
       `
     )
+    .eq('company_id', companyId)
     .eq('employee_id', employeeId)
     .gte('entry_date', from)
     .lt('entry_date', to)
@@ -160,9 +183,7 @@ export default async function TravelExpenseReportPage({
   }
 
   const projectIds = [
-    ...new Set(
-      (entries ?? []).map((entry) => entry.project_id).filter(Boolean)
-    ),
+    ...new Set((entries ?? []).map((entry) => entry.project_id).filter(Boolean)),
   ] as string[]
 
   let projects: ProjectRow[] = []
@@ -171,6 +192,7 @@ export default async function TravelExpenseReportPage({
     const { data: projectData, error: projectError } = await supabase
       .from('projects')
       .select('id, project_number, name')
+      .eq('company_id', companyId)
       .in('id', projectIds)
 
     if (projectError) {
@@ -261,13 +283,13 @@ export default async function TravelExpenseReportPage({
                 </div>
                 <div>
                   <span className="font-medium text-slate-500">Wohnort: </span>
-                  <span>{profile?.home_address || '—'}</span>
+                  <span>{travelProfile?.home_address || '—'}</span>
                 </div>
                 <div>
                   <span className="font-medium text-slate-500">
                     KFZ-Kennzeichen:{' '}
                   </span>
-                  <span>{profile?.license_plate || '—'}</span>
+                  <span>{travelProfile?.license_plate || '—'}</span>
                 </div>
               </div>
             </div>

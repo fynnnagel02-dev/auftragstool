@@ -1,10 +1,39 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import { calculateWorkHours } from '@/lib/calculate-work-hours'
 
+async function getCurrentCompanyContext() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    throw new Error('Nicht eingeloggt.')
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (error || !profile?.company_id) {
+    throw new Error('Company konnte nicht ermittelt werden.')
+  }
+
+  return {
+    supabase,
+    companyId: profile.company_id,
+  }
+}
+
 export async function upsertEmployeeWorkday(formData: FormData) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   const employeeId = formData.get('employeeId')?.toString().trim()
   const workDate = formData.get('workDate')?.toString().trim()
   const mode = formData.get('mode')?.toString().trim()
@@ -15,6 +44,17 @@ export async function upsertEmployeeWorkday(formData: FormData) {
 
   if (!employeeId || !workDate || !mode) {
     throw new Error('Bitte Mitarbeiter, Datum und Modus ausfüllen.')
+  }
+
+  const { data: employee, error: employeeError } = await supabase
+    .from('employees')
+    .select('id')
+    .eq('id', employeeId)
+    .eq('company_id', companyId)
+    .maybeSingle()
+
+  if (employeeError || !employee) {
+    throw new Error('Der ausgewählte Mitarbeiter gehört nicht zu deiner Firma.')
   }
 
   if (mode === 'work') {
@@ -30,6 +70,7 @@ export async function upsertEmployeeWorkday(formData: FormData) {
 
     const { error } = await supabase.from('employee_workdays').upsert(
       {
+        company_id: companyId,
         employee_id: employeeId,
         work_date: workDate,
         start_time: startTime,
@@ -55,6 +96,7 @@ export async function upsertEmployeeWorkday(formData: FormData) {
 
     const { error } = await supabase.from('employee_workdays').upsert(
       {
+        company_id: companyId,
         employee_id: employeeId,
         work_date: workDate,
         start_time: null,
@@ -74,12 +116,17 @@ export async function upsertEmployeeWorkday(formData: FormData) {
   }
 
   revalidatePath('/admin')
+  revalidatePath('/datensammlung')
+  revalidatePath('/foreman')
+  revalidatePath('/kpi-dashboard')
 }
 
 export async function updateEmployeeWorkday(
   workdayId: string,
   formData: FormData
 ) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   const employeeId = formData.get('employeeId')?.toString().trim()
   const workDate = formData.get('workDate')?.toString().trim()
   const mode = formData.get('mode')?.toString().trim()
@@ -90,6 +137,17 @@ export async function updateEmployeeWorkday(
 
   if (!workdayId || !employeeId || !workDate || !mode) {
     throw new Error('Bitte Mitarbeiter, Datum und Modus ausfüllen.')
+  }
+
+  const { data: employee, error: employeeError } = await supabase
+    .from('employees')
+    .select('id')
+    .eq('id', employeeId)
+    .eq('company_id', companyId)
+    .maybeSingle()
+
+  if (employeeError || !employee) {
+    throw new Error('Der ausgewählte Mitarbeiter gehört nicht zu deiner Firma.')
   }
 
   if (mode === 'work') {
@@ -106,6 +164,7 @@ export async function updateEmployeeWorkday(
     const { error } = await supabase
       .from('employee_workdays')
       .update({
+        company_id: companyId,
         employee_id: employeeId,
         work_date: workDate,
         start_time: startTime,
@@ -115,6 +174,7 @@ export async function updateEmployeeWorkday(
         note: note || null,
       })
       .eq('id', workdayId)
+      .eq('company_id', companyId)
 
     if (error) {
       throw new Error(error.message)
@@ -129,6 +189,7 @@ export async function updateEmployeeWorkday(
     const { error } = await supabase
       .from('employee_workdays')
       .update({
+        company_id: companyId,
         employee_id: employeeId,
         work_date: workDate,
         start_time: null,
@@ -138,16 +199,22 @@ export async function updateEmployeeWorkday(
         note: note || null,
       })
       .eq('id', workdayId)
+      .eq('company_id', companyId)
 
     if (error) {
       throw new Error(error.message)
     }
   }
 
+  revalidatePath('/admin')
   revalidatePath('/datensammlung')
+  revalidatePath('/foreman')
+  revalidatePath('/kpi-dashboard')
 }
 
 export async function deleteEmployeeWorkday(workdayId: string) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   if (!workdayId) {
     throw new Error('Kein Datensatz angegeben.')
   }
@@ -156,10 +223,14 @@ export async function deleteEmployeeWorkday(workdayId: string) {
     .from('employee_workdays')
     .delete()
     .eq('id', workdayId)
+    .eq('company_id', companyId)
 
   if (error) {
     throw new Error(error.message)
   }
 
+  revalidatePath('/admin')
   revalidatePath('/datensammlung')
+  revalidatePath('/foreman')
+  revalidatePath('/kpi-dashboard')
 }

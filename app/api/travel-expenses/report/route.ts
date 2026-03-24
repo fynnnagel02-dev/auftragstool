@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 const monthNames = [
   '',
@@ -93,6 +93,33 @@ type TravelExpenseEntry = {
 }
 
 export async function GET(request: NextRequest) {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return new Response('<h1>Nicht eingeloggt.</h1>', {
+      status: 401,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile?.company_id) {
+    return new Response('<h1>Firma konnte nicht ermittelt werden.</h1>', {
+      status: 403,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
+  }
+
+  const companyId = profile.company_id
   const { searchParams } = new URL(request.url)
 
   const employeeId = searchParams.get('employeeId') || ''
@@ -113,6 +140,7 @@ export async function GET(request: NextRequest) {
     .from('employees')
     .select('id, employee_number, full_name, cost_center')
     .eq('id', employeeId)
+    .eq('company_id', companyId)
     .single<EmployeeRow>()
 
   if (employeeError || !employee) {
@@ -121,21 +149,24 @@ export async function GET(request: NextRequest) {
         employeeError?.message || 'Nicht gefunden'
       )}</h1>`,
       {
-        status: 500,
+        status: 404,
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       }
     )
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: travelProfile, error: travelProfileError } = await supabase
     .from('employee_travel_profiles')
     .select('home_address, license_plate')
     .eq('employee_id', employeeId)
+    .eq('company_id', companyId)
     .maybeSingle<TravelProfileRow>()
 
-  if (profileError) {
+  if (travelProfileError) {
     return new Response(
-      `<h1>Fehler Reisekosten-Profil: ${escapeHtml(profileError.message)}</h1>`,
+      `<h1>Fehler Reisekosten-Profil: ${escapeHtml(
+        travelProfileError.message
+      )}</h1>`,
       {
         status: 500,
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
@@ -164,6 +195,7 @@ export async function GET(request: NextRequest) {
       `
     )
     .eq('employee_id', employeeId)
+    .eq('company_id', companyId)
     .gte('entry_date', from)
     .lt('entry_date', to)
     .order('entry_date', { ascending: true })
@@ -189,6 +221,7 @@ export async function GET(request: NextRequest) {
     const { data: projectData, error: projectError } = await supabase
       .from('projects')
       .select('id, project_number, name')
+      .eq('company_id', companyId)
       .in('id', projectIds)
 
     if (projectError) {
@@ -253,8 +286,7 @@ export async function GET(request: NextRequest) {
   const rowsHtml = monthRows
     .map((row) => {
       const entry = row.entry
-      const project =
-        entry?.project_id ? projectMap.get(entry.project_id) : null
+      const project = entry?.project_id ? projectMap.get(entry.project_id) : null
 
       return `
         <tr>
@@ -505,8 +537,8 @@ export async function GET(request: NextRequest) {
                 <div><span class="meta-label">Name:</span> ${escapeHtml(employee.full_name)}</div>
                 <div><span class="meta-label">Personalnummer:</span> ${escapeHtml(employee.employee_number)}</div>
                 <div><span class="meta-label">Kostenstelle:</span> ${escapeHtml(employee.cost_center)}</div>
-                <div><span class="meta-label">Wohnort:</span> ${escapeHtml(profile?.home_address)}</div>
-                <div><span class="meta-label">KFZ-Kennzeichen:</span> ${escapeHtml(profile?.license_plate)}</div>
+                <div><span class="meta-label">Wohnort:</span> ${escapeHtml(travelProfile?.home_address)}</div>
+                <div><span class="meta-label">KFZ-Kennzeichen:</span> ${escapeHtml(travelProfile?.license_plate)}</div>
               </div>
             </div>
 

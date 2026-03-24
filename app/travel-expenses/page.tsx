@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import TravelExpenseMonthForm from '@/components/travel-expense-month-form'
 
 function getCurrentMonthAndYear() {
@@ -20,10 +20,32 @@ export default async function TravelExpensesPage({
 }) {
   const resolvedSearchParams = await searchParams
   const current = getCurrentMonthAndYear()
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="text-red-600">Kein Benutzer gefunden.</p>
+  }
+
+  const { data: profileRow, error: profileRowError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileRowError || !profileRow?.company_id) {
+    return <p className="text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const companyId = profileRow.company_id
 
   const { data: employees, error: employeesError } = await supabase
     .from('employees')
     .select('id, employee_number, full_name')
+    .eq('company_id', companyId)
     .order('employee_number', { ascending: true })
 
   if (employeesError) {
@@ -45,15 +67,17 @@ export default async function TravelExpensesPage({
   const { data: projects, error: projectsError } = await supabase
     .from('projects')
     .select('id, project_number, name')
+    .eq('company_id', companyId)
     .order('project_number', { ascending: true })
 
   if (projectsError) {
     return <p className="text-red-600">Fehler Aufträge: {projectsError.message}</p>
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: travelProfile, error: profileError } = await supabase
     .from('employee_travel_profiles')
     .select('distance_home_company_km')
+    .eq('company_id', companyId)
     .eq('employee_id', selectedEmployeeId)
     .maybeSingle()
 
@@ -66,6 +90,7 @@ export default async function TravelExpensesPage({
   const { data: routes, error: routesError } = await supabase
     .from('employee_travel_project_routes')
     .select('project_id, distance_home_project_km')
+    .eq('company_id', companyId)
     .eq('employee_id', selectedEmployeeId)
 
   if (routesError) {
@@ -94,6 +119,7 @@ export default async function TravelExpensesPage({
         km_allowance
       `
     )
+    .eq('company_id', companyId)
     .eq('employee_id', selectedEmployeeId)
     .gte('entry_date', monthFrom)
     .lt('entry_date', monthTo)
@@ -108,6 +134,7 @@ export default async function TravelExpensesPage({
   const { data: workdays, error: workdaysError } = await supabase
     .from('employee_workdays')
     .select('id, work_date')
+    .eq('company_id', companyId)
     .eq('employee_id', selectedEmployeeId)
     .gte('work_date', monthFrom)
     .lt('work_date', monthTo)
@@ -124,6 +151,7 @@ export default async function TravelExpensesPage({
     const { data: assignmentEntries, error: assignmentError } = await supabase
       .from('workday_project_entries')
       .select('workday_id, project_id, created_at')
+      .eq('company_id', companyId)
       .in('workday_id', workdayIds)
       .order('created_at', { ascending: true })
 
@@ -174,7 +202,7 @@ export default async function TravelExpensesPage({
           selectedEmployeeId={selectedEmployeeId}
           selectedMonth={selectedMonth}
           selectedYear={selectedYear}
-          profile={profile}
+          profile={travelProfile}
           routes={routes ?? []}
           existingEntries={existingEntries ?? []}
           defaultProjectByDate={defaultProjectByDate}

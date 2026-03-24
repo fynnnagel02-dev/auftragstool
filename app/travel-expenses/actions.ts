@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 type TravelExpenseRowInput = {
   entry_date: string
@@ -38,12 +38,41 @@ function isMeaningfulRow(row: TravelExpenseRowInput) {
   )
 }
 
+async function getCurrentCompanyContext() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    throw new Error('Nicht eingeloggt.')
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (error || !profile?.company_id) {
+    throw new Error('Company konnte nicht ermittelt werden.')
+  }
+
+  return {
+    supabase,
+    companyId: profile.company_id,
+  }
+}
+
 export async function saveTravelExpenseMonth(
   employeeId: string,
   year: number,
   month: number,
   rows: TravelExpenseRowInput[]
 ) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   if (!employeeId) {
     throw new Error('Kein Mitarbeiter gewählt.')
   }
@@ -138,6 +167,7 @@ export async function saveTravelExpenseMonth(
   const { error: deleteError } = await supabase
     .from('travel_expense_entries')
     .delete()
+    .eq('company_id', companyId)
     .eq('employee_id', employeeId)
     .gte('entry_date', from)
     .lt('entry_date', to)
@@ -148,6 +178,7 @@ export async function saveTravelExpenseMonth(
 
   if (cleanedRows.length > 0) {
     const insertRows = cleanedRows.map((row) => ({
+      company_id: companyId,
       employee_id: employeeId,
       ...row,
     }))
@@ -162,4 +193,5 @@ export async function saveTravelExpenseMonth(
   }
 
   revalidatePath('/travel-expenses')
+  revalidatePath('/admin')
 }

@@ -1,4 +1,38 @@
-export default function GeschaeftsfuehrerDashboardPage() {
+import { createClient } from '@/lib/supabase/server'
+
+type Role = 'geschaeftsfuehrer' | 'admin' | 'vorarbeiter'
+
+export default async function GeschaeftsfuehrerDashboardPage() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="text-red-600">Kein Benutzer gefunden.</p>
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, company_id, full_name')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile) {
+    return <p className="text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const role = profile.role as Role
+
+  if (role !== 'geschaeftsfuehrer') {
+    return (
+      <p className="text-red-600">
+        Kein Zugriff auf das Geschäftsführer-Dashboard.
+      </p>
+    )
+  }
+
   return (
     <div className="space-y-8">
       <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur-2xl">

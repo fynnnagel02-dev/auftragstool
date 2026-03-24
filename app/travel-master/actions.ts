@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 type RouteInput = {
   project_id: string
@@ -9,10 +9,39 @@ type RouteInput = {
   time_home_project_min: string
 }
 
+async function getCurrentCompanyContext() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    throw new Error('Nicht eingeloggt.')
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (error || !profile?.company_id) {
+    throw new Error('Company konnte nicht ermittelt werden.')
+  }
+
+  return {
+    supabase,
+    companyId: profile.company_id,
+  }
+}
+
 export async function saveEmployeeTravelProfile(
   employeeId: string,
   formData: FormData
 ) {
+  const { supabase, companyId } = await getCurrentCompanyContext()
+
   if (!employeeId) {
     throw new Error('Kein Mitarbeiter angegeben.')
   }
@@ -80,6 +109,7 @@ export async function saveEmployeeTravelProfile(
     .from('employee_travel_profiles')
     .upsert(
       {
+        company_id: companyId,
         employee_id: employeeId,
         home_address: homeAddress,
         license_plate: licensePlate,
@@ -98,6 +128,7 @@ export async function saveEmployeeTravelProfile(
   const { error: deleteRoutesError } = await supabase
     .from('employee_travel_project_routes')
     .delete()
+    .eq('company_id', companyId)
     .eq('employee_id', employeeId)
 
   if (deleteRoutesError) {
@@ -125,6 +156,7 @@ export async function saveEmployeeTravelProfile(
       }
 
       return {
+        company_id: companyId,
         employee_id: employeeId,
         project_id: route.project_id,
         distance_home_project_km: distance,
@@ -142,4 +174,6 @@ export async function saveEmployeeTravelProfile(
   }
 
   revalidatePath('/travel-master')
+  revalidatePath('/travel-expenses')
+  revalidatePath('/admin')
 }

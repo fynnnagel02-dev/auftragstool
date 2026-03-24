@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 type EmployeeRow = {
   id: string
@@ -264,6 +264,27 @@ export default async function KpiDashboardPage({
   }>
 }) {
   const resolvedSearchParams = await searchParams
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return <p className="text-red-600">Kein Benutzer gefunden.</p>
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile?.company_id) {
+    return <p className="text-red-600">Profil konnte nicht geladen werden.</p>
+  }
+
+  const companyId = profile.company_id
 
   const selectedRange = (resolvedSearchParams?.range as RangeOption) || 'current_month'
   const selectedStartDate = resolvedSearchParams?.startDate || ''
@@ -278,6 +299,7 @@ export default async function KpiDashboardPage({
   const { data: employees, error: employeesError } = await supabase
     .from('employees')
     .select('id, full_name, employer, is_active')
+    .eq('company_id', companyId)
     .order('full_name', { ascending: true })
     .returns<EmployeeRow[]>()
 
@@ -288,11 +310,13 @@ export default async function KpiDashboardPage({
   let workdaysQuery = supabase
     .from('employee_workdays')
     .select('id, employee_id, work_date, calculated_hours, absence_type')
+    .eq('company_id', companyId)
 
   if (from) workdaysQuery = workdaysQuery.gte('work_date', from)
   if (to) workdaysQuery = workdaysQuery.lt('work_date', to)
 
-  const { data: workdays, error: workdaysError } = await workdaysQuery.returns<WorkdayRow[]>()
+  const { data: workdays, error: workdaysError } =
+    await workdaysQuery.returns<WorkdayRow[]>()
 
   if (workdaysError) {
     return <p className="text-red-600">Fehler Tagesdaten: {workdaysError.message}</p>
@@ -305,6 +329,7 @@ export default async function KpiDashboardPage({
     const { data: assignmentData, error: assignmentError } = await supabase
       .from('workday_project_entries')
       .select('workday_id, project_id, assigned_hours')
+      .eq('company_id', companyId)
       .in('workday_id', workdayIds)
       .returns<AssignmentRow[]>()
 
@@ -322,6 +347,7 @@ export default async function KpiDashboardPage({
   const { data: projects, error: projectsError } = await supabase
     .from('projects')
     .select('id, project_number, name')
+    .eq('company_id', companyId)
     .order('project_number', { ascending: true })
     .returns<ProjectRow[]>()
 
@@ -334,6 +360,7 @@ export default async function KpiDashboardPage({
     .select(
       'entry_date, project_id, meal_allowance_tax_free, meal_allowance_taxable, km_allowance'
     )
+    .eq('company_id', companyId)
 
   if (from) travelQuery = travelQuery.gte('entry_date', from)
   if (to) travelQuery = travelQuery.lt('entry_date', to)
@@ -462,8 +489,8 @@ export default async function KpiDashboardPage({
         projectId === 'ohne_auftrag'
           ? 'Ohne Auftrag'
           : projectMap.get(projectId)
-          ? `${projectMap.get(projectId)?.project_number} – ${projectMap.get(projectId)?.name}`
-          : 'Unbekannter Auftrag',
+            ? `${projectMap.get(projectId)?.project_number} – ${projectMap.get(projectId)?.name}`
+            : 'Unbekannter Auftrag',
       value: amount,
     }))
     .sort((a, b) => b.value - a.value)

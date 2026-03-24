@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import ExcelJS from 'exceljs'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 function getMonthDateRange(month: number, year: number) {
   const from = `${year}-${String(month).padStart(2, '0')}-01`
@@ -58,6 +58,27 @@ type TravelExpenseEntry = {
 }
 
 export async function GET(request: NextRequest) {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return new Response('Nicht eingeloggt', { status: 401 })
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile?.company_id) {
+    return new Response('Firma konnte nicht ermittelt werden', { status: 403 })
+  }
+
+  const companyId = profile.company_id
   const { searchParams } = new URL(request.url)
 
   const employeeId = searchParams.get('employeeId') || ''
@@ -74,20 +95,22 @@ export async function GET(request: NextRequest) {
     .from('employees')
     .select('id, employee_number, full_name, cost_center')
     .eq('id', employeeId)
+    .eq('company_id', companyId)
     .single<EmployeeRow>()
 
   if (employeeError || !employee) {
     return new Response('Mitarbeiter nicht gefunden', { status: 404 })
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: travelProfile, error: travelProfileError } = await supabase
     .from('employee_travel_profiles')
     .select('home_address, license_plate')
     .eq('employee_id', employeeId)
+    .eq('company_id', companyId)
     .maybeSingle<TravelProfileRow>()
 
-  if (profileError) {
-    return new Response(profileError.message, { status: 500 })
+  if (travelProfileError) {
+    return new Response(travelProfileError.message, { status: 500 })
   }
 
   const { data: entries, error: entriesError } = await supabase
@@ -111,6 +134,7 @@ export async function GET(request: NextRequest) {
       `
     )
     .eq('employee_id', employeeId)
+    .eq('company_id', companyId)
     .gte('entry_date', from)
     .lt('entry_date', to)
     .order('entry_date', { ascending: true })
@@ -130,6 +154,7 @@ export async function GET(request: NextRequest) {
     const { data: projectData, error: projectError } = await supabase
       .from('projects')
       .select('id, project_number, name')
+      .eq('company_id', companyId)
       .in('id', projectIds)
 
     if (projectError) {
@@ -168,10 +193,10 @@ export async function GET(request: NextRequest) {
   sheet.getCell('A4').value = 'Kostenstelle'
   sheet.getCell('B4').value = employee.cost_center || ''
   sheet.getCell('D4').value = 'Wohnort'
-  sheet.getCell('E4').value = profile?.home_address || ''
+  sheet.getCell('E4').value = travelProfile?.home_address || ''
 
   sheet.getCell('A5').value = 'KFZ-Kennzeichen'
-  sheet.getCell('B5').value = profile?.license_plate || ''
+  sheet.getCell('B5').value = travelProfile?.license_plate || ''
 
   const headerRowIndex = 8
   const header = [
@@ -218,8 +243,7 @@ export async function GET(request: NextRequest) {
     const date = new Date(Date.UTC(year, month - 1, day))
     const entryDate = date.toISOString().split('T')[0]
     const entry = entryMap.get(entryDate)
-    const project =
-      entry?.project_id ? projectMap.get(entry.project_id) : null
+    const project = entry?.project_id ? projectMap.get(entry.project_id) : null
 
     const row = sheet.getRow(currentRowIndex)
     row.values = [
