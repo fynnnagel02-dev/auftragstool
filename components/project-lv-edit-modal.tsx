@@ -6,6 +6,7 @@ import {
   deleteProjectLvPosition,
   updateProjectLvPosition,
 } from '@/app/projects/[id]/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 import AppModal from './app-modal'
 
 type LvPosition = {
@@ -38,11 +39,12 @@ export default function ProjectLvEditModal({
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Speichern ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Beim Speichern der LV-Position ist ein Fehler aufgetreten.'
+          )
+        )
       }
     })
   }
@@ -62,11 +64,12 @@ export default function ProjectLvEditModal({
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Löschen ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Beim Löschen der LV-Position ist ein Fehler aufgetreten.'
+          )
+        )
       }
     })
   }

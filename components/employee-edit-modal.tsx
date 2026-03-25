@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteEmployee, updateEmployee } from '@/app/employees/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 import AppModal from './app-modal'
 
 type Employee = {
@@ -35,11 +36,9 @@ export default function EmployeeEditModal({
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Speichern ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(err, 'Beim Speichern der Änderungen ist ein Fehler aufgetreten.')
+        )
       }
     })
   }
@@ -59,11 +58,9 @@ export default function EmployeeEditModal({
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Löschen ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(err, 'Beim Löschen des Mitarbeiters ist ein Fehler aufgetreten.')
+        )
       }
     })
   }

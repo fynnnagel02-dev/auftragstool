@@ -44,9 +44,15 @@ export default function TravelExpenseExportModal({
   const [month, setMonth] = useState(String(current.month))
   const [year, setYear] = useState(String(current.year))
   const [format, setFormat] = useState('pdf')
+  const [error, setError] = useState('')
 
   function handleExport() {
-    if (!employeeId || !month || !year) return
+    setError('')
+
+    if (!employeeId || !month || !year) {
+      setError('Bitte Mitarbeiter, Monat und Jahr auswählen.')
+      return
+    }
 
     if (format === 'pdf') {
       const url = `/api/travel-expenses/report?employeeId=${employeeId}&month=${month}&year=${year}&autoprint=1`
@@ -162,6 +168,12 @@ export default function TravelExpenseExportModal({
                   </select>
                 </div>
               </div>
+
+              {error && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
             </div>
 
             <div className="mt-8 flex items-center justify-end gap-3">

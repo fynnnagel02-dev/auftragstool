@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from 'react'
 import * as XLSX from 'xlsx'
 import { useRouter } from 'next/navigation'
 import { importEmployeeWorkdays } from '@/app/admin/import-actions'
+import { getErrorMessage } from '@/lib/app-errors'
 import ActionCard from './action-card'
 
 type Employee = {
@@ -297,11 +298,12 @@ export default function WorkdayImportModal({
         handleClose()
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Import ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Arbeitszeiten konnten nicht importiert werden. Bitte Eingaben prüfen und erneut versuchen.'
+          )
+        )
       }
     })
   }
@@ -397,7 +399,8 @@ export default function WorkdayImportModal({
                     <tbody>
                       {rows.map((row) => {
                         const matchedEmployee =
-                          employeeNumberMap.get(row.employee_number.trim()) || 'Nicht gefunden'
+                          employeeNumberMap.get(row.employee_number.trim()) ||
+                          'Nicht gefunden'
 
                         return (
                           <tr

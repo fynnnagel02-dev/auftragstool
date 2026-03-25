@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import WorkdayCreateModal from '@/components/workday-create-modal'
 import WorkdayImportModal from '@/components/workday-import-modal'
 import TravelExpenseExportModal from '@/components/travel-expense-export-modal'
+import CompletenessCheckModal from '@/components/completeness-check-modal'
 
 function getCurrentMonthAndYear() {
   const now = new Date()
@@ -107,6 +108,23 @@ function getBusinessDaysForRange(from: string, to: string, year: number) {
   return result
 }
 
+function getIsoWeekLabel(dateString: string) {
+  const date = new Date(`${dateString}T00:00:00Z`)
+  const target = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  )
+
+  const dayNr = target.getUTCDay() || 7
+  target.setUTCDate(target.getUTCDate() + 4 - dayNr)
+
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1))
+  const weekNo = Math.ceil(
+    ((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7
+  )
+
+  return `KW ${String(weekNo).padStart(2, '0')}`
+}
+
 const monthOptions = [
   { value: 'all', label: 'Alle Monate' },
   { value: 1, label: 'Januar' },
@@ -152,6 +170,14 @@ type AssignmentEntry = {
   assigned_hours: number
 }
 
+type IncompleteDay = {
+  employee_id: string
+  employee_label: string
+  date: string
+  week_label: string
+  reason: string
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
@@ -183,6 +209,7 @@ export default async function AdminPage({
   }
 
   const companyId = profile.company_id
+
   const selectedMonth = resolvedSearchParams?.month || String(current.month)
   const selectedYear = Number(resolvedSearchParams?.year) || current.year
 
@@ -233,6 +260,7 @@ export default async function AdminPage({
   }
 
   const projectHoursMap = new Map<string, number>()
+
   ;(allProjects ?? []).forEach((project) => {
     projectHoursMap.set(project.id, 0)
   })
@@ -266,6 +294,7 @@ export default async function AdminPage({
   })
 
   const activeEmployees = (employees ?? []).filter((employee) => employee.is_active)
+
   const businessDays = getBusinessDaysForRange(range.from, range.to, selectedYear)
 
   const expectedPairs = activeEmployees.flatMap((employee) =>
@@ -274,6 +303,14 @@ export default async function AdminPage({
       date,
     }))
   )
+
+  const employeeLabelMap = new Map<string, string>()
+  ;(employees ?? []).forEach((employee) => {
+    employeeLabelMap.set(
+      employee.id,
+      `${employee.employee_number ?? '—'} – ${employee.full_name}`
+    )
+  })
 
   const completedPairs = expectedPairs.filter(({ employeeId, date }) => {
     const key = `${employeeId}__${date}`
@@ -304,6 +341,88 @@ export default async function AdminPage({
     return false
   })
 
+  const incompleteDays: IncompleteDay[] =
+    selectedMonth === 'all'
+      ? []
+      : expectedPairs
+          .filter(({ employeeId, date }) => {
+            const key = `${employeeId}__${date}`
+            const workday = workdayMap.get(key)
+
+            if (!workday) return true
+
+            if (
+              workday.absence_type &&
+              workday.absence_type !== 'wochenende_feiertag'
+            ) {
+              return false
+            }
+
+            if (workday.calculated_hours !== null) {
+              const entries = assignmentsByWorkday.get(workday.id) ?? []
+              const totalAssigned = entries.reduce(
+                (sum, entry) => sum + Number(entry.assigned_hours),
+                0
+              )
+
+              const isComplete =
+                entries.length > 0 &&
+                Number(totalAssigned.toFixed(2)) ===
+                  Number(Number(workday.calculated_hours).toFixed(2))
+
+              return !isComplete
+            }
+
+            return true
+          })
+          .map(({ employeeId, date }) => {
+            const key = `${employeeId}__${date}`
+            const workday = workdayMap.get(key)
+
+            let reason = 'Offener Tag'
+
+            if (!workday) {
+              reason = 'Kein Tagesdatensatz vorhanden'
+            } else if (
+              workday.absence_type &&
+              workday.absence_type !== 'wochenende_feiertag'
+            ) {
+              reason = 'Fehlzeit vorhanden'
+            } else if (workday.calculated_hours === null) {
+              reason = 'Arbeitszeit unvollständig'
+            } else {
+              const entries = assignmentsByWorkday.get(workday.id) ?? []
+              const totalAssigned = entries.reduce(
+                (sum, entry) => sum + Number(entry.assigned_hours),
+                0
+              )
+
+              if (entries.length === 0) {
+                reason = 'Arbeitszeit vorhanden, aber keine Auftragszuordnung'
+              } else if (
+                Number(totalAssigned.toFixed(2)) !==
+                Number(Number(workday.calculated_hours).toFixed(2))
+              ) {
+                reason = 'Auftragszeiten stimmen nicht mit Arbeitszeit überein'
+              }
+            }
+
+            return {
+              employee_id: employeeId,
+              employee_label: employeeLabelMap.get(employeeId) ?? 'Unbekannter Mitarbeiter',
+              date,
+              week_label: getIsoWeekLabel(date),
+              reason,
+            }
+          })
+          .sort((a, b) => {
+            if (a.employee_label !== b.employee_label) {
+              return a.employee_label.localeCompare(b.employee_label, 'de')
+            }
+
+            return a.date.localeCompare(b.date)
+          })
+
   const completionRate =
     expectedPairs.length > 0
       ? Math.round((completedPairs.length / expectedPairs.length) * 100)
@@ -315,6 +434,10 @@ export default async function AdminPage({
     (sum, item) => sum + Number(item.assigned_hours),
     0
   )
+
+  const selectedMonthLabel =
+    monthOptions.find((month) => String(month.value) === selectedMonth)?.label ??
+    'Monat'
 
   return (
     <div className="space-y-8">
@@ -392,6 +515,21 @@ export default async function AdminPage({
           <div className="rounded-2xl border border-white/40 bg-white/70 px-4 py-2 text-sm text-slate-700">
             Vollständige Tage: <span className="font-semibold">{completedPairs.length}</span>
           </div>
+          {selectedMonth !== 'all' && (
+            <CompletenessCheckModal
+              monthLabel={selectedMonthLabel}
+              year={selectedYear}
+              incompleteDays={incompleteDays}
+            />
+          )}
+          {selectedMonth === 'all' && (
+            <CompletenessCheckModal
+              monthLabel={selectedMonthLabel}
+              year={selectedYear}
+              incompleteDays={[]}
+              disabled
+            />
+          )}
         </div>
       </section>
 

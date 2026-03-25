@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from 'react'
 import * as XLSX from 'xlsx'
 import { useRouter } from 'next/navigation'
 import { importProjectLvPositions } from '@/app/projects/[id]/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 
 type ImportRow = {
   local_id: string
@@ -218,11 +219,12 @@ export default function ProjectLvImportModal({
         handleClose()
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Import ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Beim Import der LV-Positionen ist ein Fehler aufgetreten.'
+          )
+        )
       }
     })
   }

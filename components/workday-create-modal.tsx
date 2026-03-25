@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { upsertEmployeeWorkday } from '@/app/admin/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 import { calculateWorkHours } from '@/lib/calculate-work-hours'
 import ActionCard from './action-card'
 
@@ -51,11 +52,9 @@ export default function WorkdayCreateModal({
         setEndTime('')
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Speichern ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(err, 'Beim Speichern des Tagesdatensatzes ist ein Fehler aufgetreten.')
+        )
       }
     })
   }

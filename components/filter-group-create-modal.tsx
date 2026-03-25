@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { createEmployeeFilterGroup } from '@/app/settings/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 
 export default function FilterGroupCreateModal({
   companyId,
@@ -29,11 +30,12 @@ export default function FilterGroupCreateModal({
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Speichern ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Filtergruppe konnte nicht gespeichert werden.'
+          )
+        )
       }
     })
   }

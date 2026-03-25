@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createProjectLvPosition } from '@/app/projects/[id]/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 
 export default function ProjectLvCreateModal({
   projectId,
@@ -23,11 +24,12 @@ export default function ProjectLvCreateModal({
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Speichern ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Beim Speichern der LV-Position ist ein Fehler aufgetreten.'
+          )
+        )
       }
     })
   }

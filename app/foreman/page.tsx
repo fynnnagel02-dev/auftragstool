@@ -60,11 +60,18 @@ type Workday = {
   employee_label: string
 }
 
+type ExistingEntry = {
+  workday_id: string
+  project_id: string
+  project_lv_position_id: string
+  assigned_hours: number
+}
+
 export default async function ForemanPage({
   searchParams,
 }: {
   searchParams?: Promise<{
-    employeeId?: string
+    employeeIds?: string
     groupId?: string
     week?: string
   }>
@@ -92,63 +99,51 @@ export default async function ForemanPage({
 
   const companyId = profile.company_id
 
-  const { data: employees, error: employeesError } = await supabase
+  const { data: employees } = await supabase
     .from('employees')
     .select('id, employee_number, full_name')
     .eq('company_id', companyId)
+    .eq('is_active', true)
     .order('employee_number', { ascending: true })
 
-  if (employeesError) {
-    return <p className="text-red-600">Fehler Mitarbeiter: {employeesError.message}</p>
-  }
-
-  const { data: filterGroups, error: filterGroupsError } = await supabase
+  const { data: filterGroups } = await supabase
     .from('employee_filter_groups')
     .select('id, name')
     .eq('company_id', companyId)
     .order('name', { ascending: true })
 
-  if (filterGroupsError) {
-    return (
-      <p className="text-red-600">
-        Fehler Filtergruppen: {filterGroupsError.message}
-      </p>
-    )
-  }
-
   const selectedWeek = resolvedSearchParams?.week || getCurrentWeekString()
   const { from, to } = getWeekDateRange(selectedWeek)
 
   const selectedGroupId = resolvedSearchParams?.groupId || ''
-  const selectedEmployeeId =
-    resolvedSearchParams?.employeeId || employees?.[0]?.id || ''
+  const selectedEmployeeIdsFromQuery = (
+    resolvedSearchParams?.employeeIds || ''
+  )
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
 
   let selectedEmployeeIds: string[] = []
 
   if (selectedGroupId) {
-    const { data: groupMembers, error: groupMembersError } = await supabase
+    const { data: groupMembers } = await supabase
       .from('employee_filter_group_members')
       .select('employee_id')
-      .eq('company_id', companyId)
       .eq('group_id', selectedGroupId)
-
-    if (groupMembersError) {
-      return (
-        <p className="text-red-600">
-          Fehler Gruppenmitglieder: {groupMembersError.message}
-        </p>
-      )
-    }
+      .eq('company_id', companyId)
 
     selectedEmployeeIds = (groupMembers ?? []).map((member) => member.employee_id)
-  } else if (selectedEmployeeId) {
-    selectedEmployeeIds = [selectedEmployeeId]
+  } else if (selectedEmployeeIdsFromQuery.length > 0) {
+    const validEmployeeIds = new Set((employees ?? []).map((employee) => employee.id))
+    selectedEmployeeIds = selectedEmployeeIdsFromQuery.filter((id) =>
+      validEmployeeIds.has(id)
+    )
   }
 
   let workdays: Workday[] = []
 
   if (selectedEmployeeIds.length > 0) {
-    const { data: workdaysData, error: workdaysError } = await supabase
+    const { data: workdaysData } = await supabase
       .from('employee_workdays')
       .select(
         `
@@ -167,10 +162,6 @@ export default async function ForemanPage({
       .lt('work_date', to)
       .order('work_date', { ascending: true })
 
-    if (workdaysError) {
-      return <p className="text-red-600">Fehler Tagesdaten: {workdaysError.message}</p>
-    }
-
     const employeeMap = new Map<string, string>()
     ;(employees ?? []).forEach((employee) => {
       employeeMap.set(
@@ -186,58 +177,33 @@ export default async function ForemanPage({
     }))
   }
 
-  const { data: projects, error: projectsError } = await supabase
+  const { data: projects } = await supabase
     .from('projects')
     .select('id, project_number, name')
     .eq('company_id', companyId)
     .eq('status', 'active')
     .order('project_number', { ascending: true })
 
-  if (projectsError) {
-    return <p className="text-red-600">Fehler Aufträge: {projectsError.message}</p>
-  }
-
-  const { data: lvPositions, error: lvPositionsError } = await supabase
+  const { data: lvPositions } = await supabase
     .from('project_lv_positions')
-    .select('id, project_id, order_position, lv_position, lv_description, is_active')
+    .select(
+      'id, project_id, order_position, lv_position, lv_description, is_active'
+    )
     .eq('company_id', companyId)
     .order('order_position', { ascending: true })
 
-  if (lvPositionsError) {
-    return (
-      <p className="text-red-600">
-        Fehler LV-Positionen: {lvPositionsError.message}
-      </p>
-    )
-  }
-
   const workdayIds = workdays.map((w) => w.id)
 
-  let existingEntries:
-    | {
-        workday_id: string
-        project_id: string
-        project_lv_position_id: string
-        assigned_hours: number
-      }[]
-    = []
+  let existingEntries: ExistingEntry[] = []
 
   if (workdayIds.length > 0) {
-    const { data, error: existingEntriesError } = await supabase
+    const { data: entriesData } = await supabase
       .from('workday_project_entries')
       .select('workday_id, project_id, project_lv_position_id, assigned_hours')
       .eq('company_id', companyId)
       .in('workday_id', workdayIds)
 
-    if (existingEntriesError) {
-      return (
-        <p className="text-red-600">
-          Fehler bestehende Zuordnungen: {existingEntriesError.message}
-        </p>
-      )
-    }
-
-    existingEntries = data ?? []
+    existingEntries = entriesData ?? []
   }
 
   return (
@@ -251,9 +217,9 @@ export default async function ForemanPage({
       </h1>
 
       <p className="mt-4 max-w-2xl text-slate-600">
-        Ordne die erfassten Arbeitszeiten eines Mitarbeiters oder einer
-        Filtergruppe innerhalb einer Kalenderwoche den passenden Aufträgen und
-        LV-Positionen zu.
+        Ordne die erfassten Arbeitszeiten einzelner Mitarbeiter, mehrerer
+        Mitarbeiter oder einer Filtergruppe innerhalb einer Kalenderwoche den
+        passenden Aufträgen und LV-Positionen zu.
       </p>
 
       {employees && projects && lvPositions && filterGroups && (
@@ -261,7 +227,7 @@ export default async function ForemanPage({
           <ForemanAssignmentForm
             employees={employees}
             filterGroups={filterGroups}
-            selectedEmployeeId={selectedEmployeeId}
+            selectedEmployeeIds={selectedEmployeeIds}
             selectedGroupId={selectedGroupId}
             selectedWeek={selectedWeek}
             workdays={workdays}

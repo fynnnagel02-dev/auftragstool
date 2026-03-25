@@ -1,6 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { saveForemanAssignments } from '@/app/foreman/actions'
 
@@ -64,10 +71,28 @@ function createLocalId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+function formatSelectedEmployeesLabel(
+  employees: Employee[],
+  selectedEmployeeIds: string[]
+) {
+  if (selectedEmployeeIds.length === 0) {
+    return 'Mitarbeiter auswählen'
+  }
+
+  if (selectedEmployeeIds.length === 1) {
+    const employee = employees.find((item) => item.id === selectedEmployeeIds[0])
+    return employee
+      ? `${employee.employee_number} – ${employee.full_name}`
+      : '1 Mitarbeiter ausgewählt'
+  }
+
+  return `${selectedEmployeeIds.length} Mitarbeiter ausgewählt`
+}
+
 export default function ForemanAssignmentForm({
   employees,
   filterGroups,
-  selectedEmployeeId,
+  selectedEmployeeIds,
   selectedGroupId,
   selectedWeek,
   workdays,
@@ -77,7 +102,7 @@ export default function ForemanAssignmentForm({
 }: {
   employees: Employee[]
   filterGroups: FilterGroup[]
-  selectedEmployeeId: string
+  selectedEmployeeIds: string[]
   selectedGroupId: string
   selectedWeek: string
   workdays: Workday[]
@@ -88,7 +113,31 @@ export default function ForemanAssignmentForm({
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [isPending, startTransition] = useTransition()
+
+  const [employeeFilterOpen, setEmployeeFilterOpen] = useState(false)
+  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [localSelectedEmployeeIds, setLocalSelectedEmployeeIds] =
+    useState<string[]>(selectedEmployeeIds)
+
+  const [portalReady, setPortalReady] = useState(false)
+  const [panelStyle, setPanelStyle] = useState<{
+    top: number
+    left: number
+    width: number
+  } | null>(null)
+
   const router = useRouter()
+
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    setPortalReady(true)
+  }, [])
+
+  useEffect(() => {
+    setLocalSelectedEmployeeIds(selectedEmployeeIds)
+  }, [selectedEmployeeIds])
 
   const visibleWorkdays = workdays.filter(
     (day) => !day.absence_type && day.calculated_hours !== null
@@ -212,24 +261,92 @@ export default function ForemanAssignmentForm({
     return map
   }, [rows, lvPositions])
 
+  function toggleEmployee(employeeId: string) {
+    setLocalSelectedEmployeeIds((prev) =>
+      prev.includes(employeeId)
+        ? prev.filter((id) => id !== employeeId)
+        : [...prev, employeeId]
+    )
+  }
+
+  function clearEmployeeSelection() {
+    setLocalSelectedEmployeeIds([])
+  }
+
+  const visibleEmployees = useMemo(() => {
+    const search = employeeSearch.trim().toLowerCase()
+
+    if (!search) return employees
+
+    return employees.filter((employee) => {
+      const employeeNumber = (employee.employee_number ?? '').toLowerCase()
+      const fullName = employee.full_name.toLowerCase()
+      const combined = `${employeeNumber} ${fullName}`
+
+      return (
+        employeeNumber.includes(search) ||
+        fullName.includes(search) ||
+        combined.includes(search)
+      )
+    })
+  }, [employees, employeeSearch])
+
+  function updatePanelPosition() {
+    if (!triggerRef.current) return
+
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPanelStyle({
+      top: rect.bottom + window.scrollY + 8,
+      left: rect.left + window.scrollX,
+      width: rect.width,
+    })
+  }
+
+  useEffect(() => {
+    if (!employeeFilterOpen) return
+
+    updatePanelPosition()
+
+    function handleResizeOrScroll() {
+      updatePanelPosition()
+    }
+
+    function handleOutsideClick(event: MouseEvent) {
+      const target = event.target as Node
+
+      if (triggerRef.current?.contains(target)) return
+      if (panelRef.current?.contains(target)) return
+
+      setEmployeeFilterOpen(false)
+    }
+
+    window.addEventListener('resize', handleResizeOrScroll)
+    window.addEventListener('scroll', handleResizeOrScroll, true)
+    document.addEventListener('mousedown', handleOutsideClick)
+
+    return () => {
+      window.removeEventListener('resize', handleResizeOrScroll)
+      window.removeEventListener('scroll', handleResizeOrScroll, true)
+      document.removeEventListener('mousedown', handleOutsideClick)
+    }
+  }, [employeeFilterOpen])
+
   function handleFilterSubmit(formData: FormData) {
-    const employeeId = formData.get('employeeId')?.toString() || ''
     const groupId = formData.get('groupId')?.toString() || ''
     const week = formData.get('week')?.toString()
 
     if (!week) return
 
+    const params = new URLSearchParams()
+    params.set('week', week)
+
     if (groupId) {
-      router.push(`/foreman?groupId=${groupId}&week=${week}`)
-      return
+      params.set('groupId', groupId)
+    } else if (localSelectedEmployeeIds.length > 0) {
+      params.set('employeeIds', localSelectedEmployeeIds.join(','))
     }
 
-    if (employeeId) {
-      router.push(`/foreman?employeeId=${employeeId}&week=${week}`)
-      return
-    }
-
-    router.push(`/foreman?week=${week}`)
+    router.push(`/foreman?${params.toString()}`)
   }
 
   function handleSave() {
@@ -283,7 +400,7 @@ export default function ForemanAssignmentForm({
 
       if (Number(totalAssigned.toFixed(2)) !== Number(targetHours.toFixed(2))) {
         setError(
-          `Die Summe der Auftragszeiten am ${workday?.work_date} für ${workday?.employee_label} muss exakt ${targetHours} h ergeben.`
+          `Die Summe der Auftragszeiten am ${workday?.work_date} (${workday?.employee_label}) muss exakt ${targetHours} h ergeben.`
         )
         return
       }
@@ -312,25 +429,7 @@ export default function ForemanAssignmentForm({
       <div className="rounded-3xl border border-white/40 bg-white/60 p-5 backdrop-blur-xl">
         <h2 className="text-xl font-semibold text-slate-900">Filter</h2>
 
-        <form action={handleFilterSubmit} className="mt-4 grid gap-5 md:grid-cols-4">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">
-              Mitarbeiter
-            </label>
-            <select
-              name="employeeId"
-              defaultValue={selectedGroupId ? '' : selectedEmployeeId}
-              className="w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-            >
-              <option value="">Mitarbeiter auswählen</option>
-              {employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.employee_number} – {employee.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
+        <form action={handleFilterSubmit} className="mt-4 grid gap-5 md:grid-cols-3">
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">
               Filtergruppe
@@ -347,6 +446,32 @@ export default function ForemanAssignmentForm({
                 </option>
               ))}
             </select>
+            <p className="mt-2 text-xs text-slate-500">
+              Wenn eine Filtergruppe gewählt ist, hat sie Vorrang vor der manuellen Mitarbeiterauswahl.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Mitarbeiterfilter
+            </label>
+
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={() => {
+                if (!employeeFilterOpen) {
+                  updatePanelPosition()
+                }
+                setEmployeeFilterOpen((prev) => !prev)
+              }}
+              className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-900 transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            >
+              <span className="truncate">
+                {formatSelectedEmployeesLabel(employees, localSelectedEmployeeIds)}
+              </span>
+              <span className="ml-3 text-slate-400">▾</span>
+            </button>
           </div>
 
           <div>
@@ -361,7 +486,7 @@ export default function ForemanAssignmentForm({
             />
           </div>
 
-          <div className="flex items-end">
+          <div className="md:col-span-3 flex items-end">
             <button
               type="submit"
               className="rounded-xl bg-blue-950 px-4 py-3 text-sm font-medium text-white shadow transition hover:bg-blue-900"
@@ -370,13 +495,77 @@ export default function ForemanAssignmentForm({
             </button>
           </div>
         </form>
-
-        <p className="mt-3 text-sm text-slate-500">
-          Wenn eine Filtergruppe gewählt ist, hat diese Vorrang. Es werden dann
-          alle vorhandenen Arbeitszeiten der Gruppenmitglieder in der gewählten
-          Woche geladen.
-        </p>
       </div>
+
+      {portalReady &&
+        employeeFilterOpen &&
+        panelStyle &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={{
+              position: 'absolute',
+              top: panelStyle.top,
+              left: panelStyle.left,
+              width: panelStyle.width,
+              zIndex: 999999,
+            }}
+            className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.24)]"
+          >
+            <div className="border-b border-slate-100 bg-white px-4 py-3">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm font-medium text-slate-800">
+                  Mitarbeiter auswählen
+                </p>
+                <button
+                  type="button"
+                  onClick={clearEmployeeSelection}
+                  className="text-xs font-medium text-blue-950 transition hover:opacity-70"
+                >
+                  Auswahl leeren
+                </button>
+              </div>
+
+              <input
+                type="text"
+                value={employeeSearch}
+                onChange={(e) => setEmployeeSearch(e.target.value)}
+                placeholder="Suche nach Personalnummer oder Name"
+                className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            <div className="max-h-72 overflow-y-auto bg-white px-2 py-2">
+              {visibleEmployees.map((employee) => {
+                const checked = localSelectedEmployeeIds.includes(employee.id)
+
+                return (
+                  <label
+                    key={employee.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleEmployee(employee.id)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-950 focus:ring-blue-200"
+                    />
+                    <span>
+                      {employee.employee_number} – {employee.full_name}
+                    </span>
+                  </label>
+                )
+              })}
+
+              {visibleEmployees.length === 0 && (
+                <div className="px-3 py-4 text-sm text-slate-500">
+                  Keine passenden Mitarbeiter gefunden.
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
 
       <div className="rounded-3xl border border-white/40 bg-white/60 p-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
@@ -387,7 +576,7 @@ export default function ForemanAssignmentForm({
           <button
             type="button"
             onClick={handleSave}
-            disabled={isPending}
+            disabled={isPending || visibleWorkdays.length === 0}
             className="rounded-xl bg-blue-950 px-4 py-3 text-sm font-medium text-white shadow transition hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isPending ? 'Speichern...' : 'Zuordnung speichern'}
@@ -426,12 +615,12 @@ export default function ForemanAssignmentForm({
               >
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-900">
-                      {day.work_date}
-                    </h3>
-                    <p className="mt-1 text-sm font-medium text-slate-700">
+                    <p className="text-sm font-medium uppercase tracking-[0.14em] text-slate-500">
                       {day.employee_label}
                     </p>
+                    <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                      {day.work_date}
+                    </h3>
                     <p className="mt-1 text-sm text-slate-600">
                       {day.start_time} – {day.end_time} | Arbeitszeit:{' '}
                       {day.calculated_hours} h
@@ -557,7 +746,7 @@ export default function ForemanAssignmentForm({
 
           {visibleWorkdays.length === 0 && (
             <div className="rounded-2xl border border-white/40 bg-white/60 px-4 py-6 text-center text-slate-500">
-              Für die gewählte Auswahl und diese Woche liegen keine Arbeitstage vor.
+              Für den gewählten Filter und diese Woche liegen keine Arbeitstage vor.
             </div>
           )}
         </div>

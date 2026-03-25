@@ -8,6 +8,7 @@ import {
   deleteEmployeeFilterGroup,
   saveEmployeeFilterGroupMembers,
 } from '@/app/settings/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 
 type Employee = {
   id: string
@@ -83,11 +84,12 @@ export default function FilterGroupManageModal({
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Speichern ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Filtergruppe konnte nicht gespeichert werden.'
+          )
+        )
       }
     })
   }
@@ -107,11 +109,12 @@ export default function FilterGroupManageModal({
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Löschen ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Filtergruppe konnte nicht gelöscht werden.'
+          )
+        )
       }
     })
   }

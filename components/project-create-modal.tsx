@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createProject } from '@/app/projects/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 import AppModal from './app-modal'
 
 export default function ProjectCreateModal() {
@@ -20,11 +21,9 @@ export default function ProjectCreateModal() {
         setOpen(false)
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Speichern ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(err, 'Beim Speichern des Auftrags ist ein Fehler aufgetreten.')
+        )
       }
     })
   }

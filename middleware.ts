@@ -59,10 +59,10 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-            response = NextResponse.next({ request })
+          response = NextResponse.next({ request })
 
-            cookiesToSet.forEach(({ name, value, options }) => {
-              response.cookies.set(name, value, options)
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options)
           })
         },
       },
@@ -71,11 +71,13 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
   const isLoginPage = pathname === '/login'
+  const isApiRoute = pathname.startsWith('/api/')
 
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Nicht eingeloggt
   if (!user) {
     if (isLoginPage) return response
 
@@ -100,12 +102,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Bereits eingeloggt und auf /login -> auf Standardseite umleiten
   if (isLoginPage) {
     const url = request.nextUrl.clone()
     url.pathname = getDefaultRouteForRole(role)
     return NextResponse.redirect(url)
   }
 
+  // API-Routen sollen nicht vom Rollenrouting blockiert werden,
+  // aber weiterhin nur für eingeloggte Benutzer erreichbar sein.
+  if (isApiRoute) {
+    return response
+  }
+
+  // Normale App-Routen rollenbasiert schützen
   if (!isAllowedPath(pathname, role)) {
     const url = request.nextUrl.clone()
     url.pathname = getDefaultRouteForRole(role)

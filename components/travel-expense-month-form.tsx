@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { saveTravelExpenseMonth } from '@/app/travel-expenses/actions'
+import { getErrorMessage } from '@/lib/app-errors'
 
 type Employee = {
   id: string
@@ -293,11 +294,12 @@ export default function TravelExpenseMonthForm({
         setSuccess('Reisekosten-Monat wurde gespeichert.')
         router.refresh()
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Beim Speichern ist ein Fehler aufgetreten.')
-        }
+        setError(
+          getErrorMessage(
+            err,
+            'Reisekosten-Monat konnte nicht gespeichert werden.'
+          )
+        )
       }
     })
   }
