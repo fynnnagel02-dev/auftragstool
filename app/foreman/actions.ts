@@ -1,7 +1,7 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireCompanyContext } from '@/lib/auth'
+import { revalidatePaths, REVALIDATE_WORKDAYS } from '@/lib/revalidate-paths'
 
 type ForemanEntry = {
   workday_id: string
@@ -13,35 +13,12 @@ type ForemanEntry = {
   assigned_hours: number
 }
 
-async function getCurrentCompanyContext() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Nicht eingeloggt.')
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-
-  if (error || !profile?.company_id) {
-    throw new Error('Company konnte nicht ermittelt werden.')
-  }
-
-  return {
-    supabase,
-    companyId: profile.company_id,
-  }
-}
-
 export async function saveForemanAssignments(formData: FormData) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+    'vorarbeiter',
+  ])
 
   const entriesRaw = formData.get('entries')?.toString()
 
@@ -69,7 +46,8 @@ export async function saveForemanAssignments(formData: FormData) {
       !entry.order_position_snapshot ||
       !entry.lv_position_snapshot ||
       !entry.lv_description_snapshot ||
-      !entry.assigned_hours
+      !Number.isFinite(entry.assigned_hours) ||
+      entry.assigned_hours <= 0
     ) {
       throw new Error('Ein oder mehrere Einträge sind unvollständig.')
     }
@@ -83,7 +61,7 @@ export async function saveForemanAssignments(formData: FormData) {
 
   const { data: validWorkdays, error: workdaysError } = await supabase
     .from('employee_workdays')
-    .select('id')
+    .select('id, calculated_hours')
     .eq('company_id', companyId)
     .in('id', uniqueWorkdayIds)
 
@@ -111,7 +89,7 @@ export async function saveForemanAssignments(formData: FormData) {
 
   const { data: validLvPositions, error: lvError } = await supabase
     .from('project_lv_positions')
-    .select('id')
+    .select('id, project_id')
     .eq('company_id', companyId)
     .in('id', uniqueLvPositionIds)
 
@@ -123,39 +101,61 @@ export async function saveForemanAssignments(formData: FormData) {
     throw new Error('Mindestens eine LV-Position gehört nicht zu deiner Firma.')
   }
 
-  for (const workdayId of uniqueWorkdayIds) {
-    const { error: deleteError } = await supabase
-      .from('workday_project_entries')
-      .delete()
-      .eq('company_id', companyId)
-      .eq('workday_id', workdayId)
+  const workdayHoursMap = new Map<string, number>()
+  ;(validWorkdays ?? []).forEach((workday) => {
+    workdayHoursMap.set(workday.id, Number(workday.calculated_hours ?? 0))
+  })
 
-    if (deleteError) {
-      throw new Error(deleteError.message)
+  const lvProjectMap = new Map<string, string>()
+  ;(validLvPositions ?? []).forEach((position) => {
+    lvProjectMap.set(position.id, position.project_id)
+  })
+
+  const seenAssignmentKeys = new Set<string>()
+  const totalHoursByWorkday = new Map<string, number>()
+
+  for (const entry of entries) {
+    const expectedProjectId = lvProjectMap.get(entry.project_lv_position_id)
+
+    if (expectedProjectId !== entry.project_id) {
+      throw new Error('Mindestens eine LV-Position passt nicht zum gewählten Auftrag.')
+    }
+
+    const assignmentKey = `${entry.workday_id}__${entry.project_lv_position_id}`
+    if (seenAssignmentKeys.has(assignmentKey)) {
+      throw new Error('Eine LV-Position wurde an einem Arbeitstag mehrfach zugeordnet.')
+    }
+
+    seenAssignmentKeys.add(assignmentKey)
+
+    totalHoursByWorkday.set(
+      entry.workday_id,
+      (totalHoursByWorkday.get(entry.workday_id) ?? 0) + entry.assigned_hours
+    )
+  }
+
+  for (const [workdayId, assignedHours] of totalHoursByWorkday.entries()) {
+    const availableHours = workdayHoursMap.get(workdayId) ?? 0
+
+    if (assignedHours > availableHours + 0.01) {
+      throw new Error(
+        'Die Summe der zugeordneten Stunden überschreitet bei mindestens einem Arbeitstag die erfasste Arbeitszeit.'
+      )
     }
   }
 
-  const { error: insertError } = await supabase
-    .from('workday_project_entries')
-    .insert(
-      entries.map((entry) => ({
-        company_id: companyId,
-        workday_id: entry.workday_id,
-        project_id: entry.project_id,
-        project_lv_position_id: entry.project_lv_position_id,
-        order_position_snapshot: entry.order_position_snapshot,
-        lv_position_snapshot: entry.lv_position_snapshot,
-        lv_description_snapshot: entry.lv_description_snapshot,
-        assigned_hours: entry.assigned_hours,
-      }))
-    )
+  const { error: replaceError } = await supabase.rpc(
+    'replace_workday_project_entries',
+    {
+      p_company_id: companyId,
+      p_workday_ids: uniqueWorkdayIds,
+      p_entries: entries,
+    }
+  )
 
-  if (insertError) {
-    throw new Error(insertError.message)
+  if (replaceError) {
+    throw new Error(replaceError.message)
   }
 
-  revalidatePath('/foreman')
-  revalidatePath('/datensammlung')
-  revalidatePath('/admin')
-  revalidatePath('/kpi-dashboard')
+  revalidatePaths(REVALIDATE_WORKDAYS)
 }

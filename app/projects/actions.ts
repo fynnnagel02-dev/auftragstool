@@ -1,37 +1,13 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
-
-async function getCurrentCompanyContext() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Nicht eingeloggt.')
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-
-  if (error || !profile?.company_id) {
-    throw new Error('Company konnte nicht ermittelt werden.')
-  }
-
-  return {
-    supabase,
-    companyId: profile.company_id,
-  }
-}
+import { requireCompanyContext } from '@/lib/auth'
+import { revalidatePaths, REVALIDATE_PROJECTS } from '@/lib/revalidate-paths'
 
 export async function createProject(formData: FormData) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const projectNumber = formData.get('projectNumber')?.toString().trim()
   const name = formData.get('name')?.toString().trim()
@@ -52,14 +28,14 @@ export async function createProject(formData: FormData) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/projects')
-  revalidatePath('/admin')
-  revalidatePath('/travel-master')
-  revalidatePath('/travel-expenses')
+  revalidatePaths(REVALIDATE_PROJECTS.filter((path) => path !== '/foreman'))
 }
 
 export async function updateProject(projectId: string, formData: FormData) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const projectNumber = formData.get('projectNumber')?.toString().trim()
   const name = formData.get('name')?.toString().trim()
@@ -87,16 +63,14 @@ export async function updateProject(projectId: string, formData: FormData) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/projects')
-  revalidatePath(`/projects/${projectId}`)
-  revalidatePath('/admin')
-  revalidatePath('/travel-master')
-  revalidatePath('/travel-expenses')
-  revalidatePath('/foreman')
+  revalidatePaths([...REVALIDATE_PROJECTS, `/projects/${projectId}`])
 }
 
 export async function deleteProject(projectId: string) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   if (!projectId) {
     throw new Error('Kein Auftrag angegeben.')
@@ -112,9 +86,5 @@ export async function deleteProject(projectId: string) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/projects')
-  revalidatePath('/admin')
-  revalidatePath('/travel-master')
-  revalidatePath('/travel-expenses')
-  revalidatePath('/foreman')
+  revalidatePaths(REVALIDATE_PROJECTS)
 }

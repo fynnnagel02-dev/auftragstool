@@ -1,6 +1,6 @@
 'use client'
 
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 type AppModalProps = {
@@ -22,12 +22,6 @@ export default function AppModal({
   footer,
   maxWidthClassName = 'max-w-2xl',
 }: AppModalProps) {
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
   useEffect(() => {
     if (!open) return
 
@@ -52,7 +46,7 @@ export default function AppModal({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [open, onClose])
 
-  if (!mounted || !open) {
+  if (!open || typeof document === 'undefined') {
     return null
   }
 

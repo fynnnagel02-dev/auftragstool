@@ -1,12 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import TravelProfileEditModal from '@/components/travel-profile-edit-modal'
 
-type Employee = {
-  id: string
-  employee_number: string | null
-  full_name: string
-}
-
 type TravelProfile = {
   employee_id: string
   home_address: string | null
@@ -20,12 +14,6 @@ type TravelRoute = {
   project_id: string
   distance_home_project_km: number | null
   time_home_project_min: number | null
-}
-
-type Project = {
-  id: string
-  project_number: string | null
-  name: string
 }
 
 export default async function TravelMasterPage() {

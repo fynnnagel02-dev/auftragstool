@@ -47,27 +47,6 @@ type Project = {
   name: string
 }
 
-type Workday = {
-  id: string
-  employee_id: string
-  work_date: string
-  start_time: string | null
-  end_time: string | null
-  calculated_hours: number | null
-  absence_type: string | null
-  note: string | null
-  employees:
-    | {
-        employee_number: string | null
-        full_name: string
-      }
-    | {
-        employee_number: string | null
-        full_name: string
-      }[]
-    | null
-}
-
 type WorkdayProjectEntry = {
   id: string
   workday_id: string

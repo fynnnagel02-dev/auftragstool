@@ -89,7 +89,7 @@ export default async function SettingsPage() {
             </p>
           </div>
 
-          <FilterGroupCreateModal companyId={companyId} />
+          <FilterGroupCreateModal />
         </div>
       </section>
 

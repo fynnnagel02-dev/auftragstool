@@ -1,8 +1,8 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireCompanyContext } from '@/lib/auth'
 import { calculateWorkHours } from '@/lib/calculate-work-hours'
+import { revalidatePaths, REVALIDATE_WORKDAYS } from '@/lib/revalidate-paths'
 
 type ImportRow = {
   employee_number: string
@@ -41,35 +41,11 @@ function normalizeDate(value: string) {
   return `${year}-${month}-${day}`
 }
 
-async function getCurrentCompanyContext() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Nicht eingeloggt.')
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-
-  if (error || !profile?.company_id) {
-    throw new Error('Company konnte nicht ermittelt werden.')
-  }
-
-  return {
-    supabase,
-    companyId: profile.company_id,
-  }
-}
-
 export async function importEmployeeWorkdays(rows: ImportRow[]) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   if (!rows || rows.length === 0) {
     throw new Error('Es wurden keine Arbeitszeiten zum Import übergeben.')
@@ -127,6 +103,12 @@ export async function importEmployeeWorkdays(rows: ImportRow[]) {
     }
 
     const calculatedHours = calculateWorkHours(startTime, endTime)
+
+    if (calculatedHours === null) {
+      throw new Error(
+        `Zeile ${index + 1}: Die Arbeitszeit konnte nicht berechnet werden.`
+      )
+    }
 
     return {
       company_id: companyId,
@@ -205,8 +187,5 @@ export async function importEmployeeWorkdays(rows: ImportRow[]) {
     throw new Error(insertError.message)
   }
 
-  revalidatePath('/admin')
-  revalidatePath('/datensammlung')
-  revalidatePath('/foreman')
-  revalidatePath('/kpi-dashboard')
+  revalidatePaths(REVALIDATE_WORKDAYS)
 }

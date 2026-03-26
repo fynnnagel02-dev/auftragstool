@@ -1,41 +1,17 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
-
-async function getCurrentCompanyContext() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Nicht eingeloggt.')
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('company_id, role')
-    .eq('id', user.id)
-    .single()
-
-  if (error || !profile?.company_id) {
-    throw new Error('Company konnte nicht ermittelt werden.')
-  }
-
-  if (profile.role !== 'admin' && profile.role !== 'geschaeftsfuehrer') {
-    throw new Error('Keine Berechtigung für Einstellungen.')
-  }
-
-  return {
-    supabase,
-    companyId: profile.company_id,
-  }
-}
+import { requireCompanyContext } from '@/lib/auth'
+import {
+  ensureCompanyRecordExists,
+  ensureCompanyRecordsExist,
+} from '@/lib/company-ownership'
+import { revalidatePaths, REVALIDATE_SETTINGS } from '@/lib/revalidate-paths'
 
 export async function createEmployeeFilterGroup(formData: FormData) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const name = formData.get('name')?.toString().trim()
   const description = formData.get('description')?.toString().trim() || null
@@ -54,12 +30,14 @@ export async function createEmployeeFilterGroup(formData: FormData) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/settings')
-  revalidatePath('/foreman')
+  revalidatePaths(REVALIDATE_SETTINGS)
 }
 
 export async function updateEmployeeFilterGroup(formData: FormData) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const groupId = formData.get('groupId')?.toString().trim()
   const name = formData.get('name')?.toString().trim()
@@ -82,12 +60,14 @@ export async function updateEmployeeFilterGroup(formData: FormData) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/settings')
-  revalidatePath('/foreman')
+  revalidatePaths(REVALIDATE_SETTINGS)
 }
 
 export async function deleteEmployeeFilterGroup(groupId: string) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   if (!groupId) {
     throw new Error('Keine Filtergruppe angegeben.')
@@ -103,12 +83,14 @@ export async function deleteEmployeeFilterGroup(groupId: string) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/settings')
-  revalidatePath('/foreman')
+  revalidatePaths(REVALIDATE_SETTINGS)
 }
 
 export async function saveEmployeeFilterGroupMembers(formData: FormData) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const groupId = formData.get('groupId')?.toString().trim()
 
@@ -116,61 +98,38 @@ export async function saveEmployeeFilterGroupMembers(formData: FormData) {
     throw new Error('Keine Filtergruppe angegeben.')
   }
 
-  const { data: group, error: groupError } = await supabase
-    .from('employee_filter_groups')
-    .select('id')
-    .eq('id', groupId)
-    .eq('company_id', companyId)
-    .maybeSingle()
-
-  if (groupError || !group) {
-    throw new Error('Die Filtergruppe gehört nicht zu deiner Firma.')
-  }
+  await ensureCompanyRecordExists(
+    supabase,
+    'employee_filter_groups',
+    companyId,
+    groupId,
+    'Die Filtergruppe gehört nicht zu deiner Firma.'
+  )
 
   const selectedEmployeeIds = formData.getAll('employeeIds').map(String)
 
   if (selectedEmployeeIds.length > 0) {
-    const { data: validEmployees, error: employeeError } = await supabase
-      .from('employees')
-      .select('id')
-      .eq('company_id', companyId)
-      .in('id', selectedEmployeeIds)
-
-    if (employeeError) {
-      throw new Error(employeeError.message)
-    }
-
-    if ((validEmployees ?? []).length !== selectedEmployeeIds.length) {
-      throw new Error('Mindestens ein ausgewählter Mitarbeiter gehört nicht zu deiner Firma.')
-    }
+    await ensureCompanyRecordsExist(
+      supabase,
+      'employees',
+      companyId,
+      selectedEmployeeIds,
+      'Mindestens ein ausgewählter Mitarbeiter gehört nicht zu deiner Firma.'
+    )
   }
 
-  const { error: deleteError } = await supabase
-    .from('employee_filter_group_members')
-    .delete()
-    .eq('group_id', groupId)
-    .eq('company_id', companyId)
-
-  if (deleteError) {
-    throw new Error(deleteError.message)
-  }
-
-  if (selectedEmployeeIds.length > 0) {
-    const rows = selectedEmployeeIds.map((employeeId) => ({
-      company_id: companyId,
-      group_id: groupId,
-      employee_id: employeeId,
-    }))
-
-    const { error: insertError } = await supabase
-      .from('employee_filter_group_members')
-      .insert(rows)
-
-    if (insertError) {
-      throw new Error(insertError.message)
+  const { error: replaceError } = await supabase.rpc(
+    'replace_employee_filter_group_members',
+    {
+      p_company_id: companyId,
+      p_group_id: groupId,
+      p_employee_ids: selectedEmployeeIds,
     }
+  )
+
+  if (replaceError) {
+    throw new Error(replaceError.message)
   }
 
-  revalidatePath('/settings')
-  revalidatePath('/foreman')
+  revalidatePaths(REVALIDATE_SETTINGS)
 }

@@ -119,7 +119,6 @@ export default function ForemanAssignmentForm({
   const [localSelectedEmployeeIds, setLocalSelectedEmployeeIds] =
     useState<string[]>(selectedEmployeeIds)
 
-  const [portalReady, setPortalReady] = useState(false)
   const [panelStyle, setPanelStyle] = useState<{
     top: number
     left: number
@@ -131,53 +130,43 @@ export default function ForemanAssignmentForm({
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    setPortalReady(true)
-  }, [])
-
-  useEffect(() => {
-    setLocalSelectedEmployeeIds(selectedEmployeeIds)
-  }, [selectedEmployeeIds])
-
   const visibleWorkdays = workdays.filter(
     (day) => !day.absence_type && day.calculated_hours !== null
   )
 
-  function buildInitialRows(): DayAssignments[] {
-    return visibleWorkdays.map((day) => {
-      const existingForDay = existingEntries.filter((e) => e.workday_id === day.id)
+  const buildInitialRows = useMemo(
+    () => () =>
+      visibleWorkdays.map((day) => {
+        const existingForDay = existingEntries.filter((e) => e.workday_id === day.id)
 
-      if (existingForDay.length > 0) {
+        if (existingForDay.length > 0) {
+          return {
+            workday_id: day.id,
+            entries: existingForDay.map((entry) => ({
+              local_id: createLocalId(),
+              project_id: entry.project_id,
+              project_lv_position_id: entry.project_lv_position_id,
+              assigned_hours: entry.assigned_hours.toString(),
+            })),
+          }
+        }
+
         return {
           workday_id: day.id,
-          entries: existingForDay.map((entry) => ({
-            local_id: createLocalId(),
-            project_id: entry.project_id,
-            project_lv_position_id: entry.project_lv_position_id,
-            assigned_hours: entry.assigned_hours.toString(),
-          })),
+          entries: [
+            {
+              local_id: createLocalId(),
+              project_id: '',
+              project_lv_position_id: '',
+              assigned_hours: day.calculated_hours?.toString() ?? '',
+            },
+          ],
         }
-      }
-
-      return {
-        workday_id: day.id,
-        entries: [
-          {
-            local_id: createLocalId(),
-            project_id: '',
-            project_lv_position_id: '',
-            assigned_hours: day.calculated_hours?.toString() ?? '',
-          },
-        ],
-      }
-    })
-  }
+      }),
+    [existingEntries, visibleWorkdays]
+  )
 
   const [rows, setRows] = useState<DayAssignments[]>(buildInitialRows())
-
-  useEffect(() => {
-    setRows(buildInitialRows())
-  }, [workdays, existingEntries])
 
   function updateEntry(
     workdayId: string,
@@ -497,10 +486,10 @@ export default function ForemanAssignmentForm({
         </form>
       </div>
 
-      {portalReady &&
-        employeeFilterOpen &&
-        panelStyle &&
-        createPortal(
+        {typeof document !== 'undefined' &&
+          employeeFilterOpen &&
+          panelStyle &&
+          createPortal(
           <div
             ref={panelRef}
             style={{

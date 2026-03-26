@@ -1,7 +1,11 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireCompanyContext } from '@/lib/auth'
+import {
+  ensureCompanyRecordExists,
+  ensureCompanyRecordsExist,
+} from '@/lib/company-ownership'
+import { revalidatePaths, REVALIDATE_PROJECTS } from '@/lib/revalidate-paths'
 
 type ImportRow = {
   order_position: string
@@ -13,55 +17,14 @@ function normalizeValue(value: string) {
   return value.trim()
 }
 
-async function getCurrentCompanyContext() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Nicht eingeloggt.')
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-
-  if (error || !profile?.company_id) {
-    throw new Error('Company konnte nicht ermittelt werden.')
-  }
-
-  return {
-    supabase,
-    companyId: profile.company_id,
-  }
-}
-
-async function ensureProjectBelongsToCompany(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  companyId: string,
-  projectId: string
-) {
-  const { data: project, error } = await supabase
-    .from('projects')
-    .select('id')
-    .eq('id', projectId)
-    .eq('company_id', companyId)
-    .maybeSingle()
-
-  if (error || !project) {
-    throw new Error('Der ausgewählte Auftrag gehört nicht zu deiner Firma.')
-  }
-}
-
 export async function createProjectLvPosition(
   projectId: string,
   formData: FormData
 ) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const orderPosition = formData.get('orderPosition')?.toString().trim()
   const lvPosition = formData.get('lvPosition')?.toString().trim()
@@ -74,7 +37,13 @@ export async function createProjectLvPosition(
     )
   }
 
-  await ensureProjectBelongsToCompany(supabase, companyId, projectId)
+  await ensureCompanyRecordExists(
+    supabase,
+    'projects',
+    companyId,
+    projectId,
+    'Der ausgewählte Auftrag gehört nicht zu deiner Firma.'
+  )
 
   const { error } = await supabase.from('project_lv_positions').insert({
     company_id: companyId,
@@ -89,9 +58,7 @@ export async function createProjectLvPosition(
     throw new Error(error.message)
   }
 
-  revalidatePath(`/projects/${projectId}`)
-  revalidatePath('/projects')
-  revalidatePath('/foreman')
+  revalidatePaths([...REVALIDATE_PROJECTS, `/projects/${projectId}`])
 }
 
 export async function updateProjectLvPosition(
@@ -99,7 +66,10 @@ export async function updateProjectLvPosition(
   projectId: string,
   formData: FormData
 ) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const orderPosition = formData.get('orderPosition')?.toString().trim()
   const lvPosition = formData.get('lvPosition')?.toString().trim()
@@ -112,7 +82,13 @@ export async function updateProjectLvPosition(
     )
   }
 
-  await ensureProjectBelongsToCompany(supabase, companyId, projectId)
+  await ensureCompanyRecordExists(
+    supabase,
+    'projects',
+    companyId,
+    projectId,
+    'Der ausgewählte Auftrag gehört nicht zu deiner Firma.'
+  )
 
   const { error } = await supabase
     .from('project_lv_positions')
@@ -130,22 +106,29 @@ export async function updateProjectLvPosition(
     throw new Error(error.message)
   }
 
-  revalidatePath(`/projects/${projectId}`)
-  revalidatePath('/projects')
-  revalidatePath('/foreman')
+  revalidatePaths([...REVALIDATE_PROJECTS, `/projects/${projectId}`])
 }
 
 export async function deleteProjectLvPosition(
   positionId: string,
   projectId: string
 ) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   if (!positionId || !projectId) {
     throw new Error('Keine LV-Position angegeben.')
   }
 
-  await ensureProjectBelongsToCompany(supabase, companyId, projectId)
+  await ensureCompanyRecordExists(
+    supabase,
+    'projects',
+    companyId,
+    projectId,
+    'Der ausgewählte Auftrag gehört nicht zu deiner Firma.'
+  )
 
   const { error } = await supabase
     .from('project_lv_positions')
@@ -158,16 +141,17 @@ export async function deleteProjectLvPosition(
     throw new Error(error.message)
   }
 
-  revalidatePath(`/projects/${projectId}`)
-  revalidatePath('/projects')
-  revalidatePath('/foreman')
+  revalidatePaths([...REVALIDATE_PROJECTS, `/projects/${projectId}`])
 }
 
 export async function importProjectLvPositions(
   projectId: string,
   rows: ImportRow[]
 ) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   if (!projectId) {
     throw new Error('Kein Auftrag angegeben.')
@@ -177,7 +161,13 @@ export async function importProjectLvPositions(
     throw new Error('Es wurden keine LV-Positionen zum Import übergeben.')
   }
 
-  await ensureProjectBelongsToCompany(supabase, companyId, projectId)
+  await ensureCompanyRecordExists(
+    supabase,
+    'projects',
+    companyId,
+    projectId,
+    'Der ausgewählte Auftrag gehört nicht zu deiner Firma.'
+  )
 
   const cleanedRows = rows.map((row, index) => {
     const orderPosition = normalizeValue(row.order_position || '')
@@ -259,6 +249,14 @@ export async function importProjectLvPositions(
     }
   }
 
+  await ensureCompanyRecordsExist(
+    supabase,
+    'projects',
+    companyId,
+    [projectId],
+    'Der ausgewählte Auftrag gehört nicht zu deiner Firma.'
+  )
+
   const { error: insertError } = await supabase
     .from('project_lv_positions')
     .insert(cleanedRows)
@@ -267,7 +265,5 @@ export async function importProjectLvPositions(
     throw new Error(insertError.message)
   }
 
-  revalidatePath(`/projects/${projectId}`)
-  revalidatePath('/projects')
-  revalidatePath('/foreman')
+  revalidatePaths([...REVALIDATE_PROJECTS, `/projects/${projectId}`])
 }

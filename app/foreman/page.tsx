@@ -38,17 +38,6 @@ function getWeekDateRange(weekString: string) {
   return { from, to }
 }
 
-type Employee = {
-  id: string
-  employee_number: string | null
-  full_name: string
-}
-
-type FilterGroup = {
-  id: string
-  name: string
-}
-
 type Workday = {
   id: string
   employee_id: string
@@ -225,6 +214,15 @@ export default async function ForemanPage({
       {employees && projects && lvPositions && filterGroups && (
         <div className="mt-8">
           <ForemanAssignmentForm
+            key={[
+              selectedWeek,
+              selectedGroupId || 'manual',
+              selectedEmployeeIds.join(','),
+              workdays.map((workday) => workday.id).join(','),
+              existingEntries
+                .map((entry) => `${entry.workday_id}:${entry.project_lv_position_id}`)
+                .join(','),
+            ].join('|')}
             employees={employees}
             filterGroups={filterGroups}
             selectedEmployeeIds={selectedEmployeeIds}

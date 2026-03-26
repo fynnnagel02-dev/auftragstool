@@ -1,37 +1,13 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
-
-async function getCurrentCompanyId() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Nicht eingeloggt.')
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-
-  if (error || !profile?.company_id) {
-    throw new Error('Company konnte nicht ermittelt werden.')
-  }
-
-  return {
-    supabase,
-    companyId: profile.company_id,
-  }
-}
+import { requireCompanyContext } from '@/lib/auth'
+import { revalidatePaths, REVALIDATE_EMPLOYEES } from '@/lib/revalidate-paths'
 
 export async function createEmployee(formData: FormData) {
-  const { supabase, companyId } = await getCurrentCompanyId()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const employeeNumber = formData.get('employeeNumber')?.toString().trim()
   const fullName = formData.get('fullName')?.toString().trim()
@@ -60,14 +36,14 @@ export async function createEmployee(formData: FormData) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/employees')
-  revalidatePath('/settings')
-  revalidatePath('/admin')
-  revalidatePath('/foreman')
+  revalidatePaths(REVALIDATE_EMPLOYEES)
 }
 
 export async function updateEmployee(employeeId: string, formData: FormData) {
-  const { supabase, companyId } = await getCurrentCompanyId()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   const employeeNumber = formData.get('employeeNumber')?.toString().trim()
   const fullName = formData.get('fullName')?.toString().trim()
@@ -103,14 +79,14 @@ export async function updateEmployee(employeeId: string, formData: FormData) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/employees')
-  revalidatePath('/settings')
-  revalidatePath('/admin')
-  revalidatePath('/foreman')
+  revalidatePaths(REVALIDATE_EMPLOYEES)
 }
 
 export async function deleteEmployee(employeeId: string) {
-  const { supabase, companyId } = await getCurrentCompanyId()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   if (!employeeId) {
     throw new Error('Kein Mitarbeiter angegeben.')
@@ -126,8 +102,5 @@ export async function deleteEmployee(employeeId: string) {
     throw new Error(error.message)
   }
 
-  revalidatePath('/employees')
-  revalidatePath('/settings')
-  revalidatePath('/admin')
-  revalidatePath('/foreman')
+  revalidatePaths(REVALIDATE_EMPLOYEES)
 }

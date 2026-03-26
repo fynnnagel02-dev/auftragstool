@@ -145,7 +145,7 @@ export default async function TravelExpensesPage({
 
   const workdayIds = (workdays ?? []).map((workday) => workday.id)
 
-  let defaultProjectByDate: Record<string, string> = {}
+  const defaultProjectByDate: Record<string, string> = {}
 
   if (workdayIds.length > 0) {
     const { data: assignmentEntries, error: assignmentError } = await supabase
@@ -197,6 +197,18 @@ export default async function TravelExpensesPage({
 
       <div className="mt-8">
         <TravelExpenseMonthForm
+          key={[
+            selectedEmployeeId,
+            selectedMonth,
+            selectedYear,
+            existingEntries
+              .map((entry) => `${entry.entry_date}:${entry.project_id ?? ''}`)
+              .join(','),
+            routes
+              ?.map((route) => `${route.project_id}:${route.distance_home_project_km ?? ''}`)
+              .join(','),
+            travelProfile?.distance_home_company_km ?? '',
+          ].join('|')}
           employees={employees ?? []}
           projects={projects ?? []}
           selectedEmployeeId={selectedEmployeeId}

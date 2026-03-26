@@ -148,13 +148,6 @@ type Employee = {
   is_active?: boolean | null
 }
 
-type Project = {
-  id: string
-  project_number: string | null
-  name: string
-  status?: string | null
-}
-
 type Workday = {
   id: string
   employee_id: string

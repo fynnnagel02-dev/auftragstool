@@ -1,7 +1,11 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireCompanyContext } from '@/lib/auth'
+import {
+  ensureCompanyRecordExists,
+  ensureCompanyRecordsExist,
+} from '@/lib/company-ownership'
+import { revalidatePaths } from '@/lib/revalidate-paths'
 
 type TravelExpenseRowInput = {
   entry_date: string
@@ -38,40 +42,16 @@ function isMeaningfulRow(row: TravelExpenseRowInput) {
   )
 }
 
-async function getCurrentCompanyContext() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Nicht eingeloggt.')
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-
-  if (error || !profile?.company_id) {
-    throw new Error('Company konnte nicht ermittelt werden.')
-  }
-
-  return {
-    supabase,
-    companyId: profile.company_id,
-  }
-}
-
 export async function saveTravelExpenseMonth(
   employeeId: string,
   year: number,
   month: number,
   rows: TravelExpenseRowInput[]
 ) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   if (!employeeId) {
     throw new Error('Kein Mitarbeiter gewählt.')
@@ -80,6 +60,14 @@ export async function saveTravelExpenseMonth(
   if (!year || !month) {
     throw new Error('Monat oder Jahr fehlt.')
   }
+
+  await ensureCompanyRecordExists(
+    supabase,
+    'employees',
+    companyId,
+    employeeId,
+    'Der ausgewählte Mitarbeiter gehört nicht zu deiner Firma.'
+  )
 
   const from = `${year}-${String(month).padStart(2, '0')}-01`
   const nextMonth = month === 12 ? 1 : month + 1
@@ -136,7 +124,31 @@ export async function saveTravelExpenseMonth(
       })
     )
 
+  const projectIds = cleanedRows
+    .map((row) => row.project_id)
+    .filter((projectId): projectId is string => Boolean(projectId))
+
+  await ensureCompanyRecordsExist(
+    supabase,
+    'projects',
+    companyId,
+    projectIds,
+    'Mindestens ein ausgewählter Auftrag gehört nicht zu deiner Firma.'
+  )
+
+  const dateSet = new Set<string>()
+
   for (const row of cleanedRows) {
+    if (!row.entry_date || row.entry_date < from || row.entry_date >= to) {
+      throw new Error('Mindestens ein Reisekosten-Eintrag liegt außerhalb des gewählten Monats.')
+    }
+
+    if (dateSet.has(row.entry_date)) {
+      throw new Error(`Das Datum ${row.entry_date} ist mehrfach vorhanden.`)
+    }
+
+    dateSet.add(row.entry_date)
+
     if (row.private_kilometers !== null && Number.isNaN(row.private_kilometers)) {
       throw new Error('Private Kilometer enthalten einen ungültigen Wert.')
     }
@@ -164,34 +176,20 @@ export async function saveTravelExpenseMonth(
     }
   }
 
-  const { error: deleteError } = await supabase
-    .from('travel_expense_entries')
-    .delete()
-    .eq('company_id', companyId)
-    .eq('employee_id', employeeId)
-    .gte('entry_date', from)
-    .lt('entry_date', to)
-
-  if (deleteError) {
-    throw new Error(deleteError.message)
-  }
-
-  if (cleanedRows.length > 0) {
-    const insertRows = cleanedRows.map((row) => ({
-      company_id: companyId,
-      employee_id: employeeId,
-      ...row,
-    }))
-
-    const { error: insertError } = await supabase
-      .from('travel_expense_entries')
-      .insert(insertRows)
-
-    if (insertError) {
-      throw new Error(insertError.message)
+  const { error: replaceError } = await supabase.rpc(
+    'replace_travel_expense_entries',
+    {
+      p_company_id: companyId,
+      p_employee_id: employeeId,
+      p_from: from,
+      p_to: to,
+      p_entries: cleanedRows,
     }
+  )
+
+  if (replaceError) {
+    throw new Error(replaceError.message)
   }
 
-  revalidatePath('/travel-expenses')
-  revalidatePath('/admin')
+  revalidatePaths(['/travel-expenses', '/admin'])
 }

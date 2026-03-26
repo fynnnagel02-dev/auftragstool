@@ -1,7 +1,14 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireCompanyContext } from '@/lib/auth'
+import {
+  ensureCompanyRecordExists,
+  ensureCompanyRecordsExist,
+} from '@/lib/company-ownership'
+import {
+  revalidatePaths,
+  REVALIDATE_TRAVEL_MASTER,
+} from '@/lib/revalidate-paths'
 
 type RouteInput = {
   project_id: string
@@ -9,42 +16,26 @@ type RouteInput = {
   time_home_project_min: string
 }
 
-async function getCurrentCompanyContext() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Nicht eingeloggt.')
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-
-  if (error || !profile?.company_id) {
-    throw new Error('Company konnte nicht ermittelt werden.')
-  }
-
-  return {
-    supabase,
-    companyId: profile.company_id,
-  }
-}
-
 export async function saveEmployeeTravelProfile(
   employeeId: string,
   formData: FormData
 ) {
-  const { supabase, companyId } = await getCurrentCompanyContext()
+  const { supabase, companyId } = await requireCompanyContext([
+    'admin',
+    'geschaeftsfuehrer',
+  ])
 
   if (!employeeId) {
     throw new Error('Kein Mitarbeiter angegeben.')
   }
+
+  await ensureCompanyRecordExists(
+    supabase,
+    'employees',
+    companyId,
+    employeeId,
+    'Der ausgewählte Mitarbeiter gehört nicht zu deiner Firma.'
+  )
 
   const homeAddress = formData.get('homeAddress')?.toString().trim() || null
   const licensePlate = formData.get('licensePlate')?.toString().trim() || null
@@ -86,6 +77,20 @@ export async function saveEmployeeTravelProfile(
     }
   }
 
+  const projectIds = cleanedRoutes.map((route) => route.project_id)
+
+  if (new Set(projectIds).size !== projectIds.length) {
+    throw new Error('Ein Auftrag darf in den Reisekosten-Routen nur einmal vorkommen.')
+  }
+
+  await ensureCompanyRecordsExist(
+    supabase,
+    'projects',
+    companyId,
+    projectIds,
+    'Mindestens ein Auftrag in den Reisekosten-Routen gehört nicht zu deiner Firma.'
+  )
+
   const distanceHomeCompanyKm =
     distanceHomeCompanyRaw === '' ? null : Number(distanceHomeCompanyRaw)
   const timeHomeCompanyMin =
@@ -125,55 +130,44 @@ export async function saveEmployeeTravelProfile(
     throw new Error(profileError.message)
   }
 
-  const { error: deleteRoutesError } = await supabase
-    .from('employee_travel_project_routes')
-    .delete()
-    .eq('company_id', companyId)
-    .eq('employee_id', employeeId)
+  const routeRows = cleanedRoutes.map((route) => {
+    const distance =
+      route.distance_home_project_km === ''
+        ? null
+        : Number(route.distance_home_project_km)
 
-  if (deleteRoutesError) {
-    throw new Error(deleteRoutesError.message)
-  }
+    const time =
+      route.time_home_project_min === ''
+        ? null
+        : Number(route.time_home_project_min)
 
-  if (cleanedRoutes.length > 0) {
-    const routeRows = cleanedRoutes.map((route) => {
-      const distance =
-        route.distance_home_project_km === ''
-          ? null
-          : Number(route.distance_home_project_km)
-
-      const time =
-        route.time_home_project_min === ''
-          ? null
-          : Number(route.time_home_project_min)
-
-      if (distance !== null && (Number.isNaN(distance) || distance < 0)) {
-        throw new Error('Eine Entfernung Wohnort → Auftrag ist ungültig.')
-      }
-
-      if (time !== null && (Number.isNaN(time) || time < 0)) {
-        throw new Error('Eine Zeit Wohnort → Auftrag ist ungültig.')
-      }
-
-      return {
-        company_id: companyId,
-        employee_id: employeeId,
-        project_id: route.project_id,
-        distance_home_project_km: distance,
-        time_home_project_min: time,
-      }
-    })
-
-    const { error: insertRoutesError } = await supabase
-      .from('employee_travel_project_routes')
-      .insert(routeRows)
-
-    if (insertRoutesError) {
-      throw new Error(insertRoutesError.message)
+    if (distance !== null && (Number.isNaN(distance) || distance < 0)) {
+      throw new Error('Eine Entfernung Wohnort → Auftrag ist ungültig.')
     }
+
+    if (time !== null && (Number.isNaN(time) || time < 0)) {
+      throw new Error('Eine Zeit Wohnort → Auftrag ist ungültig.')
+    }
+
+    return {
+      project_id: route.project_id,
+      distance_home_project_km: distance,
+      time_home_project_min: time,
+    }
+  })
+
+  const { error: replaceRoutesError } = await supabase.rpc(
+    'replace_employee_travel_project_routes',
+    {
+      p_company_id: companyId,
+      p_employee_id: employeeId,
+      p_routes: routeRows,
+    }
+  )
+
+  if (replaceRoutesError) {
+    throw new Error(replaceRoutesError.message)
   }
 
-  revalidatePath('/travel-master')
-  revalidatePath('/travel-expenses')
-  revalidatePath('/admin')
+  revalidatePaths(REVALIDATE_TRAVEL_MASTER)
 }

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { getEnv } from '@/lib/env'
 
 type Role = 'geschaeftsfuehrer' | 'admin' | 'vorarbeiter'
 
@@ -47,12 +48,13 @@ function isAllowedPath(pathname: string, role: Role) {
   })
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
+  const env = getEnv()
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {
@@ -77,7 +79,6 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Nicht eingeloggt
   if (!user) {
     if (isLoginPage) return response
 
@@ -102,20 +103,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Bereits eingeloggt und auf /login -> auf Standardseite umleiten
   if (isLoginPage) {
     const url = request.nextUrl.clone()
     url.pathname = getDefaultRouteForRole(role)
     return NextResponse.redirect(url)
   }
 
-  // API-Routen sollen nicht vom Rollenrouting blockiert werden,
-  // aber weiterhin nur für eingeloggte Benutzer erreichbar sein.
   if (isApiRoute) {
     return response
   }
 
-  // Normale App-Routen rollenbasiert schützen
   if (!isAllowedPath(pathname, role)) {
     const url = request.nextUrl.clone()
     url.pathname = getDefaultRouteForRole(role)

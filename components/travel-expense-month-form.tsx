@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { saveTravelExpenseMonth } from '@/app/travel-expenses/actions'
 import { getErrorMessage } from '@/lib/app-errors'
@@ -176,7 +176,8 @@ export default function TravelExpenseMonthForm({
   const [success, setSuccess] = useState('')
   const [isPending, startTransition] = useTransition()
 
-  const createInitialRows = () =>
+  const initialRows = useMemo(
+    () =>
     buildMonthRows(
       selectedYear,
       selectedMonth,
@@ -184,21 +185,18 @@ export default function TravelExpenseMonthForm({
       defaultProjectByDate,
       profile,
       routes
-    )
+    ),
+    [
+      defaultProjectByDate,
+      existingEntries,
+      profile,
+      routes,
+      selectedMonth,
+      selectedYear,
+    ]
+  )
 
-  const [rows, setRows] = useState<MonthDayRow[]>(createInitialRows())
-
-  useEffect(() => {
-    setRows(createInitialRows())
-  }, [
-    selectedEmployeeId,
-    selectedMonth,
-    selectedYear,
-    existingEntries,
-    profile,
-    routes,
-    defaultProjectByDate,
-  ])
+  const [rows, setRows] = useState<MonthDayRow[]>(initialRows)
 
   const routeMap = useMemo(() => {
     const map = new Map<string, TravelRoute>()
